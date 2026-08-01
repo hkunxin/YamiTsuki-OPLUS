@@ -62,8 +62,8 @@ fn battery_power_watts() -> String {
                 // 标准单位: µV × µA → W
                 v_abs * i_abs / 1_000_000_000_000.0
             } else {
-                // mV × mA → W（OPLUS/MTK gauge）
-                v_abs * i_abs / 1_000.0
+                // mV × mA → W = (V/1000) × (I/1000) = V×I / 10^6
+                v_abs * i_abs / 1_000_000.0
             };
             format!("{:.2}", watts)
         }
