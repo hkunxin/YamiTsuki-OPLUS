@@ -191,9 +191,17 @@ async function updateStatus() {
         var freq = parseInt(freqRes.stdout);
         document.getElementById("cpuFreq").textContent = freq ? (freq/1000).toFixed(0) + " MHz" : "--";
 
-        var tempRes = await execCommand("cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null");
+        // Prefer the real SoC sensor (type=soc_max) instead of thermal_zone0,
+        // which is a charger sensor on the PLG110.
+        var tempRes = await execCommand("for z in /sys/class/thermal/thermal_zone*/type; do [ -f \\\"$z\\\" ] || continue; if [ \\\"$(cat \\\"$z\\\")\\\" = soc_max ]; then cat \\\"${z%/type}/temp\\\"; break; fi; done");
         var temp = parseInt(tempRes.stdout);
         document.getElementById("cpuTemp").textContent = temp ? (temp/1000).toFixed(1) + "°C" : "--";
+
+        var gpuUtilRes = await execCommand("v=$(cat /sys/kernel/ged/hal/gpu_utilization 2>/dev/null); [ -n \\\"$v\\\" ] || v=$(cat /sys/kernel/ged/hal/gpu_sum_loading 2>/dev/null); echo \\\"$v\\\"");
+        var gpuUtil = parseInt(gpuUtilRes.stdout);
+        document.getElementById("gpuUtil").textContent = Number.isFinite(gpuUtil) && gpuUtil >= 0 && gpuUtil <= 100 ? gpuUtil + "%" : "--";
+        var gpuNodeRes = await execCommand("if [ -r /sys/kernel/ged/hal/gpu_utilization ]; then echo 'GED 可读'; else echo '未检测'; fi; if [ -w /sys/kernel/ged/hal/custom_upbound_gpu_freq ]; then echo '可写'; fi");
+        document.getElementById("gpuStatus").textContent = gpuNodeRes.stdout.trim().replace(/\\n/g, " / ") || "--";
 
         var battRes = await execCommand("dumpsys battery 2>/dev/null | grep level | awk '{print $2}'");
         document.getElementById("batteryLevel").textContent = battRes.stdout.trim() || "--%";

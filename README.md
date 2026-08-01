@@ -43,15 +43,20 @@ cargo build --release --target aarch64-linux-android
 |------|:----:|
 | CPU 大小核识别 + 频率限制 | DONE |
 | Governor 切换 (schedutil/performance/powersave/conservative) | DONE |
-| GPU 频率控制 | DONE |
-| 智能模式（熄屏/低电/充电/游戏检测） | DONE |
+| GPU 识别与 GED 负载读取 | PLG110 适配 |
+| GPU 频率上限控制 | 条件支持，取决于节点权限 |
+| FAS GPU 负载感知 | 部分实现 |
+| 智能模式（熄屏/低电/游戏检测） | 已实现，需真机验证 |
 | 命令管道协议 (yamitsuki_cmd) | DONE |
-| 充电增强 | DONE |
-| 禁用 Horae | DONE |
-| 禁用硬件叠加层 | DONE |
-| 禁用阶梯充电 | DONE |
-| 隐藏 MT 管理器 | DONE |
-| 属性伪装 | DONE |
-| 禁用 USB 调试 | DONE |
-| 设备特征随机修改 | DONE |
+| WebUI SoC 温度与 GPU 状态 | 已适配 PLG110 |
+| 充电增强 | 条件支持，不保证节点存在 |
+| 禁用 Horae | 条件支持 |
+| 禁用硬件叠加层 | 条件支持 |
+| 禁用阶梯充电 | 条件支持 |
+| 隐藏 MT 管理器 | 条件支持 |
+| 属性伪装 | 高风险，需手动验证 |
+| 禁用 USB 调试 | 条件支持 |
+| 设备特征随机修改 | 条件支持 |
 | 日志系统 | DONE |
+| IO 调度动态节点扫描 | 已实现 |
+| SCX sched_ext | 仅内核支持时可用 |

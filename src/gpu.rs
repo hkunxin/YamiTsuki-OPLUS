@@ -71,8 +71,9 @@ impl GpuManager {
         match self.vendor {
             GpuVendor::Adreno => fs::read_to_string(GPU_MAX_FREQ)
                 .ok().and_then(|raw| numbers(&raw).into_iter().next()).unwrap_or(0),
-            // GED nodes exposed by PLG110 report limits/utilization, not a reliable current clock.
-            GpuVendor::GedMali | GpuVendor::Unknown => 0,
+            GpuVendor::GedMali => fs::read_to_string(GED_GPU_FREQ)
+                .ok().and_then(|raw| numbers(&raw).into_iter().next()).unwrap_or(0),
+            GpuVendor::Unknown => 0,
         }
     }
 
