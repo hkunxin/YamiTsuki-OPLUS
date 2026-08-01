@@ -68,7 +68,10 @@ impl GpuManager {
         match self.vendor {
             GpuVendor::Adreno => fs::read_to_string(GPU_MAX_FREQ).ok().and_then(|raw| numbers(&raw).into_iter().next()).unwrap_or(0),
             GpuVendor::DevfreqMali => self.devfreq_root.as_ref().and_then(|root| fs::read_to_string(Path::new(root).join("cur_freq")).ok()).and_then(|raw| numbers(&raw).into_iter().next()).unwrap_or(0),
-            GpuVendor::GedMali => fs::read_to_string(GED_CURRENT_FREQ).ok().and_then(|raw| numbers(&raw).nth(1)).unwrap_or(0),
+            GpuVendor::GedMali => fs::read_to_string(GED_CURRENT_FREQ)
+                .ok()
+                .and_then(|raw| numbers(&raw).get(1).copied())
+                .unwrap_or(0),
             GpuVendor::Unknown => 0,
         }
     }

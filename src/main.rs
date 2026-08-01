@@ -190,9 +190,10 @@ fn daemon_loop(
                 // Adjust CPU ceiling only; never write unverified GED GPU control nodes.
                 let core_count = cpu.big_cores.len() + cpu.little_cores.len();
                 for i in 0..core_count {
-                    let max = cpu.read_max_freq(i);
+                    let Ok(core) = u32::try_from(i) else { continue; };
+                    let max = cpu.read_max_freq(core);
                     let target = (max as f64 * scale) as u64;
-                    if target > cpu.read_min_freq(i) { cpu.set_scaling_max(i, target); }
+                    if target > cpu.read_min_freq(core) { cpu.set_scaling_max(core, target); }
                 }
             }
             (avg, current)

@@ -46,7 +46,7 @@ impl ThreadOptimizer {
                 }
 
                 // Set SCHED_FIFO priority 50 (range 1-99)
-                let sched_path = format!("/proc/{}/task/{}/sched", tid, tid);
+                let _sched_path = format!("/proc/{}/task/{}/sched", tid, tid);
                 let prio_path = format!("/proc/{}/task/{}/sched_priority", tid, tid);
                 let policy_path = format!("/proc/{}/task/{}/sched_policy", tid, tid);
 
