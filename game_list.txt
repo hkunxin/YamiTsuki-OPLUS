@@ -1,0 +1,8 @@
+com.tencent.tmgp.dfm
+com.tencent.tmgp.cf
+com.tencent.tmgp.pubgmhd
+com.tencent.tmgp.cod
+com.tencent.tmgp.codev
+com.tencent.mf.uam
+com.tencent.ig
+com.kurogame.haru.hero

@@ -1,0 +1,20 @@
+[package]
+name = "yamitsuki"
+version = "2.0.0"
+authors = ["YamiTsuki Team"]
+edition = "2021"
+description = "YamiTsuki-OPLUS 底层调度引擎 · Rust 守护进程"
+license = "GPL-3.0"
+
+[dependencies]
+
+[profile.release]
+strip = true
+opt-level = "s"      # size-optimized for ~200KB binary
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[[bin]]
+name = "yamitsuki_rs"
+path = "src/main.rs"

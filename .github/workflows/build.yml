@@ -1,0 +1,98 @@
+name: Build YamiTsuki-OPLUS
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: aarch64-linux-android
+  RUST_VERSION: "1.85"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ env.TARGET }}
+
+      - name: Setup Android NDK
+        run: |
+          # Download NDK r27c (LTS)
+          NDK_VERSION="r27c"
+          NDK_ZIP="android-ndk-${NDK_VERSION}-linux.zip"
+          wget -q "https://dl.google.com/android/repository/${NDK_ZIP}"
+          unzip -qo ${NDK_ZIP}
+          echo "ANDROID_NDK_HOME=${GITHUB_WORKSPACE}/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=${GITHUB_WORKSPACE}/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+
+      - name: Setup Cargo Config
+        run: |
+          mkdir -p ~/.cargo
+          cat > ~/.cargo/config.toml << 'EOF'
+          [target.aarch64-linux-android]
+          linker = "aarch64-linux-android21-clang"
+          rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+          EOF
+
+          # Add NDK toolchains to PATH
+          NDK_TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "$NDK_TOOLCHAIN" >> $GITHUB_PATH
+
+      - name: Build Release Binary
+        run: |
+          cargo build --release --target ${{ env.TARGET }}
+
+      - name: Prepare Module Package
+        run: |
+          # Copy compiled binary to bin/
+          mkdir -p dist/bin dist/webroot
+          cp target/${{ env.TARGET }}/release/yamitsuki_rs dist/bin/yamitsuki_rs
+          aarch64-linux-android-strip dist/bin/yamitsuki_rs
+
+          # Copy module files
+          cp webroot/index.html dist/webroot/
+          cp webroot/style.css dist/webroot/
+          cp webroot/script.js dist/webroot/
+          cp customize.sh dist/
+          cp service.sh dist/
+          cp module.prop dist/
+          cp game_list.txt dist/
+
+          # Show final binary size
+          echo "=== Binary Size ==="
+          ls -lh dist/bin/yamitsuki_rs
+          echo "=== Package Size ==="
+          du -sh dist/
+
+      - name: Package ZIP Artifact
+        run: |
+          cd dist
+          zip -r ../YamiTsuki-OPLUS-V2.0.zip .
+          cd ..
+          echo "=== ZIP Size ==="
+          ls -lh YamiTsuki-OPLUS-V2.0.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YamiTsuki-OPLUS-V2.0
+          path: YamiTsuki-OPLUS-V2.0.zip
+
+      - name: Upload to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: YamiTsuki-OPLUS-V2.0.zip

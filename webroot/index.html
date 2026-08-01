@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>YamiTsuki · 引擎</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+
+    <div class="app-container">
+        <header class="header">
+            <div class="header-left">
+                <span class="logo-icon">🌙</span>
+                <h1>YamiTsuki</h1>
+            </div>
+            <span class="version-badge">V2.0 · OPLUS</span>
+        </header>
+
+        <!-- 导航栏 -->
+        <nav class="nav-bar">
+            <button class="nav-tab active" data-tab="main" onclick="switchTab('main')">🏠 主页</button>
+            <button class="nav-tab" data-tab="features" onclick="switchTab('features')">⚡ 附加功能</button>
+            <button class="nav-tab" data-tab="about" onclick="switchTab('about')">🙋 关于</button>
+        </nav>
+
+        <!-- ===== 主页 ===== -->
+        <div id="tab-main" class="tab-content active">
+            <div class="feature-chips">
+                <span class="chip chip-rust">🦀 Rust 引擎</span>
+                <span class="chip chip-freq">⚡ 底层调频</span>
+                <span class="chip chip-fengchi">🌀 风驰调度</span>
+                <span class="chip chip-thermal">❄️ 温控管理</span>
+                <span class="chip chip-governor">⚙️ 调速器</span>
+            </div>
+
+            <!-- 模式切换 -->
+            <section class="card">
+                <div class="card-header">
+                    <span class="card-icon">🎯</span>
+                    <span class="card-title">模式切换</span>
+                </div>
+                <div class="mode-grid">
+                    <button class="mode-btn active" data-mode="auto" onclick="setMode('auto')">
+                        <span class="icon">🤖</span>智能
+                    </button>
+                    <button class="mode-btn" data-mode="performance" onclick="setMode('performance')">
+                        <span class="icon">🌕</span>游戏
+                    </button>
+                    <button class="mode-btn" data-mode="powersave" onclick="setMode('powersave')">
+                        <span class="icon">🌙</span>省电
+                    </button>
+                    <button class="mode-btn" data-mode="balance" onclick="setMode('balance')">
+                        <span class="icon">⚖️</span>均衡
+                    </button>
+                </div>
+            </section>
+
+            <!-- ★★★ 调速器选择卡片 ★★★ -->
+            <section class="card" id="governor-card">
+                <div class="card-header">
+                    <span class="card-icon">⚙️</span>
+                    <span class="card-title">CPU 调速器</span>
+                    <span class="reboot-tag" id="governor-current-tag">schedutil</span>
+                </div>
+                <div class="feature-desc">选择 CPU 频率调控策略，不同调速器影响性能与功耗平衡。</div>
+                <div class="governor-grid" id="governor-list">
+                    <!-- 由 JavaScript 动态生成 -->
+                </div>
+                <div style="margin-top:12px;font-size:11px;color:var(--text-muted);">
+                    💡 点击调速器名称立即切换，<span id="governor-status-text">当前: schedutil</span>
+                    <span style="margin-left:12px;">🔄 <a href="#" onclick="loadGovernors(); return false;" style="color:var(--accent-cyan);text-decoration:none;">刷新列表</a></span>
+                </div>
+            </section>
+
+            <!-- 实时状态 -->
+            <section class="card">
+                <div class="card-header">
+                    <span class="card-icon">📊</span>
+                    <span class="card-title">实时状态</span>
+                </div>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="status-label">当前模式</span>
+                        <span class="status-value purple" id="currentMode">--</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">游戏检测</span>
+                        <span class="status-value gold" id="gameDetect">--</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">电池电量</span>
+                        <span class="status-value green" id="batteryLevel">--</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">屏幕状态</span>
+                        <span class="status-value cyan" id="screenState">--</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">CPU 频率</span>
+                        <span class="status-value gold" id="cpuFreq">--</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">CPU 温度</span>
+                        <span class="status-value" id="cpuTemp" style="color:#FF8A65;">--</span>
+                    </div>
+                </div>
+                <div class="status-footer">
+                    <span id="engineStatus">🦀 Rust: --</span>
+                    <span id="extraStatus">⚙️ 调度器: --</span>
+                </div>
+            </section>
+
+            <!-- 游戏名单 -->
+            <section class="card">
+                <div class="card-header">
+                    <span class="card-icon">🎮</span>
+                    <span class="card-title">游戏名单 <span class="card-subtitle">（游戏模式触发）</span></span>
+                </div>
+                <div id="gameList"><div class="empty-state">加载中...</div></div>
+                <div class="add-area">
+                    <input id="gameInput" type="text" placeholder="输入包名 如 com.tencent..." />
+                    <button onclick="addGame()">添加</button>
+                </div>
+            </section>
+
+            <!-- 日志 -->
+            <section class="card">
+                <div class="card-header">
+                    <span class="card-icon">📜</span>
+                    <span class="card-title">运行日志</span>
+                    <button class="log-refresh-btn" onclick="refreshLog()">⟳ 刷新</button>
+                </div>
+                <div class="log-box" id="logBox">加载中...</div>
+            </section>
+        </div>
+
+        <!-- ===== 附加功能 ===== -->
+        <div id="tab-features" class="tab-content">
+            <div class="features-grid">
+                <!-- 充电加速 -->
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <span class="feature-card-icon">⚡</span>
+                        <span class="feature-card-title">充电速度增强</span>
+                        <span class="reboot-tag">重启生效</span>
+                    </div>
+                    <div class="feature-card-desc">解锁最大充电电流</div>
+                    <div class="feature-card-control">
+                        <span class="status-tag" id="charge_boost-status">已关闭</span>
+                        <button class="btn feature-btn" data-feature="charge_boost">开启</button>
+                    </div>
+                </div>
+
+                <!-- 禁用 Horae -->
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <span class="feature-card-icon">🛑</span>
+                        <span class="feature-card-title">禁用 Horae</span>
+                        <span class="reboot-tag">重启生效</span>
+                    </div>
+                    <div class="feature-card-desc">提升充电速度与流畅度</div>
+                    <div class="feature-card-control">
+                        <span class="status-tag" id="horae-status">已关闭</span>
+                        <button class="btn feature-btn" data-feature="horae">开启</button>
+                    </div>
+                </div>
+
+                <!-- 禁用硬件叠加层 -->
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <span class="feature-card-icon">🖥️</span>
+                        <span class="feature-card-title">禁用叠加层</span>
+                        <span class="reboot-tag">立即生效</span>
+                    </div>
+                    <div class="feature-card-desc">解决掉帧问题</div>
+                    <div class="feature-card-control">
+                        <span class="status-tag" id="hw_overlay-status">已关闭</span>
+                        <button class="btn feature-btn" data-feature="hw_overlay">开启</button>
+                    </div>
+                </div>
+
+                <!-- 禁用阶梯充电 -->
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <span class="feature-card-icon">🔋</span>
+                        <span class="feature-card-title">禁用阶梯充电</span>
+                        <span class="reboot-tag">立即生效</span>
+                    </div>
+                    <div class="feature-card-desc">全程保持高功率充电</div>
+                    <div class="feature-card-control">
+                        <span class="status-tag" id="step_charging-status">已关闭</span>
+                        <button class="btn feature-btn" data-feature="step_charging">开启</button>
+                    </div>
+                </div>
+
+                <!-- 隐藏 MT 管理器 -->
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <span class="feature-card-icon">🚫</span>
+                        <span class="feature-card-title">隐藏 MT 管理器</span>
+                        <span class="reboot-tag">立即生效</span>
+                    </div>
+                    <div class="feature-card-desc">挂载空目录隐藏数据</div>
+                    <div class="feature-card-control">
+                        <span class="status-tag" id="mt_hide-status">已关闭</span>
+                        <button class="btn feature-btn" data-feature="mt_hide">开启</button>
+                    </div>
+                </div>
+
+                <!-- 属性伪装 -->
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <span class="feature-card-icon">🔐</span>
+                        <span class="feature-card-title">属性伪装</span>
+                        <span class="reboot-tag">立即生效</span>
+                    </div>
+                    <div class="feature-card-desc">开机自动伪装系统属性</div>
+                    <div class="feature-card-control">
+                        <span class="status-tag" id="prop-status">已关闭</span>
+                        <button class="btn feature-btn" data-feature="prop">开启</button>
+                    </div>
+                </div>
+
+                <!-- 禁用 USB 调试 -->
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <span class="feature-card-icon">🔌</span>
+                        <span class="feature-card-title">禁用 USB 调试</span>
+                        <span class="reboot-tag">立即生效</span>
+                    </div>
+                    <div class="feature-card-desc">禁用 ADB 与开发者选项</div>
+                    <div class="feature-card-control">
+                        <span class="status-tag" id="disable_usb-status">已关闭</span>
+                        <button class="btn feature-btn" data-feature="disable_usb">开启</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ★★★ 执行区 ★★★ -->
+            <div class="section-title" style="margin-top:24px;">🛠️ 执行功能</div>
+            <div class="exec-area">
+                <div class="exec-card">
+                    <div class="exec-card-header">
+                        <span class="exec-card-icon">🔄</span>
+                        <span class="exec-card-title">修改设备特征</span>
+                        <span class="exec-card-desc">一键随机修改设备ID、IMEI、MAC等</span>
+                    </div>
+                    <div class="exec-card-control">
+                        <button class="btn exec-btn" id="device-spoof-btn">▶ 执行</button>
+                        <span class="exec-status" id="device-spoof-status">就绪</span>
+                    </div>
+                    <div class="exec-output" id="device-spoof-output">等待执行...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== 关于页面（完整） ===== -->
+        <div id="tab-about" class="tab-content">
+            <div class="dev-cards-container">
+                <div class="card dev-card">
+                    <div class="dev-avatar-wrapper">
+                        <div class="dev-avatar-ring"></div>
+                        <img class="dev-avatar" id="avatar-iori" src="https://s41.ax1x.com/2026/04/21/pegzZNt.jpg" alt="开发者头像" />
+                    </div>
+                    <div class="dev-info">
+                        <div class="dev-name">羽濑川伊穗</div>
+                        <div class="dev-role">架构 · 核心功能</div>
+                    </div>
+                    <div class="dev-bio">
+                        <span>「杂鱼前辈，我可是很厉害的哦～」</span>
+                    </div>
+                </div>
+
+                <div class="card dev-card">
+                    <div class="dev-avatar-wrapper">
+                        <div class="dev-avatar-ring"></div>
+                        <img class="dev-avatar" id="avatar-iho" src="https://s41.ax1x.com/2026/04/21/pegzbPP.jpg" alt="开发者头像" />
+                    </div>
+                    <div class="dev-info">
+                        <div class="dev-name">小鸟游一濑</div>
+                        <div class="dev-role">WebUI · 交互设计</div>
+                    </div>
+                    <div class="dev-bio">
+                        <span>「爆裂せよ、精神を砕け、この世界を追放せよ！」</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">💬</span>
+                    <span class="card-title">交流反馈</span>
+                </div>
+                <button class="join-btn" id="join-group-btn">🐧 加入作者的小窝 · QQ群 →</button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📖</span>
+                    <span class="card-title">关于模块</span>
+                </div>
+                <div class="feature-desc">
+                    <p><strong>YamiTsuki-OPLUS</strong> 是一款专为 OPPO/一加/realme 设备打造的 KernelSU 调度模块。</p>
+                    <p style="margin-top:8px;">采用 <strong>Rust 语言</strong> 编写的底层守护进程，直接读写内核节点实现 CPU/GPU 频率调控、调度器切换、温控管理，在省电与性能之间找到最佳平衡点。</p>
+                    <p style="margin-top:8px;color:var(--accent-purple);">🌙 日常省电 · 游戏满帧 · 一机双面</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">🎨</span>
+                    <span class="card-title">外观设置</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+                    <span style="font-size:11px;color:var(--text-secondary);white-space:nowrap;min-width:52px">玻璃模糊度</span>
+                    <input type="range" class="slider" id="r-opacity" min="0" max="40" step="1" value="6" style="flex:1;height:36px" oninput="onOpacity(this)">
+                    <span style="font-family:monospace;font-weight:700;min-width:36px;text-align:right"><span id="v-opacity">6</span><span style="font-size:11px;color:var(--text-tertiary)"> px</span></span>
+                </div>
+                <div style="display:flex;gap:7px">
+                    <button class="btn btn-primary" style="flex:1;padding:10px;font-size:14px" onclick="pickBg()">🖼️ 选择图片</button>
+                    <button class="btn btn-ghost" style="flex:1;padding:10px;font-size:14px" onclick="clearBg()">🗑️ 清除背景</button>
+                </div>
+                <p style="font-size:11px;color:var(--text-tertiary);margin-top:10px;line-height:1.5">💡 选择图片后卡片会呈现毛玻璃效果</p>
+            </div>
+
+            <button class="uninstall-btn" id="uninstall-module-btn">🗑️ 卸载模块 ⚠️</button>
+
+            <div class="footer" style="margin-top:24px">
+                <span>YamiTsuki · 让系统更懂你</span>
+                <br />
+                <span style="font-size:11px">© 2026 小鸟游一濑 &amp; 羽濑川伊穗</span>
+            </div>
+        </div>
+
+        <div class="toast" id="toast">
+            <span class="toast-icon">✅</span>
+            <span class="toast-msg">操作成功</span>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
