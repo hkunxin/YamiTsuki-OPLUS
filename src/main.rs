@@ -215,7 +215,7 @@ fn daemon_loop(
 
         // ── IO scheduler ──
         if mode_changed {
-            let sched = io.scheduler_for_mode(&active);
+            let sched = IoManager::scheduler_for_mode(&active);
             io.apply(sched, &active);
         }
 
@@ -344,7 +344,7 @@ fn main() {
 
     // ── 初始 IO 调度 ──
     let init_mode = mode_mgr.active_mode();
-    let init_sched = io.scheduler_for_mode(&init_mode);
+    let init_sched = IoManager::scheduler_for_mode(&init_mode);
     io.apply(init_sched, &init_mode);
     vm.apply_mode(&init_mode);
 
