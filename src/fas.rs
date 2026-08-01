@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::gpu::{GED_LOADING_PATH, GED_UTIL_PATH};
+use crate::gpu::{GED_CURRENT_FREQ_PATH, GED_LOADING_PATH, GED_UTIL_PATH};
 
 const GPU_BUSY: &str = "/sys/class/kgsl/kgsl-3d0/gpubusy";
 const GPU_UTIL: &str = "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage";
@@ -10,38 +10,47 @@ pub struct FasScheduler {
     idx: usize,
 }
 
-fn bounded_percent(raw: &str) -> Option<u32> {
-    let value = raw.split_whitespace().find_map(|part| part.parse::<u32>().ok())?;
-    (value <= 100).then_some(value)
+fn numbers(raw: &str) -> Vec<u64> {
+    raw.split_whitespace().filter_map(|part| part.parse::<u64>().ok()).collect()
+}
+
+fn ged_util(raw: &str) -> Option<u32> {
+    let values = numbers(raw);
+    if values.len() >= 3 {
+        // PLG110 reports three bucket values; use their weighted total.
+        let total = values.iter().take(3).sum::<u64>();
+        if total > 0 {
+            return Some(((values[2].saturating_mul(100) / total).min(100)) as u32);
+        }
+    }
+    values.first().copied().filter(|v| *v <= 100).map(|v| v as u32)
 }
 
 impl FasScheduler {
-    pub fn new() -> Self {
-        FasScheduler { history: [0; 4], idx: 0 }
-    }
+    pub fn new() -> Self { FasScheduler { history: [0; 4], idx: 0 } }
 
-    /// Read the real GPU utilization percentage.
-    /// GED reports utilization directly on the OPPO/MediaTek target.
     pub fn gpu_util(&self) -> u32 {
         if let Ok(raw) = fs::read_to_string(GED_UTIL_PATH) {
-            if let Some(value) = bounded_percent(&raw) {
-                return value;
-            }
+            if let Some(value) = ged_util(&raw) { return value; }
         }
         if let Ok(raw) = fs::read_to_string(GED_LOADING_PATH) {
-            if let Some(value) = bounded_percent(&raw) {
-                return value;
+            let values = numbers(&raw);
+            if values.len() >= 2 && values[1] > 0 {
+                return ((values[0].saturating_mul(100) / values[1]).min(100)) as u32;
             }
         }
         if let Ok(raw) = fs::read_to_string(GPU_BUSY) {
-            let mut values = raw.split_whitespace().filter_map(|part| part.parse::<u64>().ok());
-            if let (Some(busy), Some(total)) = (values.next(), values.next()) {
-                if total > 0 {
-                    return ((busy.saturating_mul(100) / total).min(100)) as u32;
-                }
+            let values = numbers(&raw);
+            if values.len() >= 2 && values[1] > 0 {
+                return ((values[0].saturating_mul(100) / values[1]).min(100)) as u32;
             }
         }
-        fs::read_to_string(GPU_UTIL).ok().and_then(|raw| bounded_percent(&raw)).unwrap_or(0)
+        fs::read_to_string(GPU_UTIL).ok().and_then(|raw| ged_util(&raw)).unwrap_or(0)
+    }
+
+    pub fn current_gpu_freq(&self) -> u64 {
+        fs::read_to_string(GED_CURRENT_FREQ_PATH).ok()
+            .and_then(|raw| numbers(&raw).first().copied()).unwrap_or(0)
     }
 
     pub fn update(&mut self) -> u32 {

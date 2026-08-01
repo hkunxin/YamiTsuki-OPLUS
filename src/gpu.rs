@@ -4,7 +4,9 @@ const GPU_MAX_FREQ: &str = "/sys/class/kgsl/kgsl-3d0/max_gpuclk";
 const GPU_AVAIL_FREQ: &str = "/sys/class/kgsl/kgsl-3d0/gpu_available_frequencies";
 const GPU_FORCE_RAIL: &str = "/sys/class/kgsl/kgsl-3d0/force_rail_on";
 
+// PLG110: gpu_freq is a thermal limit list, not the current clock.
 const GED_GPU_FREQ: &str = "/sys/kernel/thermal/gpu_freq";
+const GED_CURRENT_FREQ: &str = "/sys/kernel/ged/hal/current_freqency";
 const GED_UTIL: &str = "/sys/kernel/ged/hal/gpu_utilization";
 const GED_SUM_LOADING: &str = "/sys/kernel/ged/hal/gpu_sum_loading";
 const GED_BOOST_FREQ: &str = "/sys/kernel/ged/hal/custom_boost_gpu_freq";
@@ -33,13 +35,6 @@ fn readable(path: &str) -> bool {
     fs::read_to_string(path).map(|s| !s.trim().is_empty()).unwrap_or(false)
 }
 
-fn writable_numeric(path: &str, value: u64) -> bool {
-    if value == 0 || !readable(path) {
-        return false;
-    }
-    fs::write(path, value.to_string()).is_ok()
-}
-
 impl GpuManager {
     pub fn new() -> Self {
         if readable(GPU_MAX_FREQ) {
@@ -49,9 +44,10 @@ impl GpuManager {
             GpuManager { vendor: GpuVendor::Adreno, available_freqs: freqs }
         } else if readable(GED_UTIL)
             || readable(GED_SUM_LOADING)
-            || readable(GED_GPU_FREQ)
+            || readable(GED_CURRENT_FREQ)
             || readable(GED_BOOST_FREQ)
             || readable(GED_UPBOUND_FREQ)
+            || readable(GED_GPU_FREQ)
         {
             let mut freqs = Vec::new();
             for path in [GED_BOOST_FREQ, GED_UPBOUND_FREQ, GED_GPU_FREQ] {
@@ -71,7 +67,7 @@ impl GpuManager {
         match self.vendor {
             GpuVendor::Adreno => fs::read_to_string(GPU_MAX_FREQ)
                 .ok().and_then(|raw| numbers(&raw).into_iter().next()).unwrap_or(0),
-            GpuVendor::GedMali => fs::read_to_string(GED_GPU_FREQ)
+            GpuVendor::GedMali => fs::read_to_string(GED_CURRENT_FREQ)
                 .ok().and_then(|raw| numbers(&raw).into_iter().next()).unwrap_or(0),
             GpuVendor::Unknown => 0,
         }
@@ -87,16 +83,14 @@ impl GpuManager {
     }
 
     pub fn apply_mode(&self, mode: &str) {
-        let Some(target) = self.target_freq(mode) else { return; };
         match self.vendor {
             GpuVendor::Adreno => {
-                let _ = writable_numeric(GPU_MAX_FREQ, target);
+                let Some(target) = self.target_freq(mode) else { return; };
+                let _ = fs::write(GPU_MAX_FREQ, target.to_string());
                 let _ = fs::write(GPU_FORCE_RAIL, if mode == "performance" { "1" } else { "0" });
             }
             GpuVendor::GedMali => {
-                // Only write nodes that are present and expose a numeric value.
-                let _ = writable_numeric(GED_UPBOUND_FREQ, target);
-                if mode == "performance" { let _ = writable_numeric(GED_BOOST_FREQ, target); }
+                // PLG110 GED control units/ranges are not confirmed. Read-only for safety.
             }
             GpuVendor::Unknown => {}
         }
@@ -113,3 +107,4 @@ impl GpuManager {
 
 pub(crate) const GED_UTIL_PATH: &str = GED_UTIL;
 pub(crate) const GED_LOADING_PATH: &str = GED_SUM_LOADING;
+pub(crate) const GED_CURRENT_FREQ_PATH: &str = GED_CURRENT_FREQ;

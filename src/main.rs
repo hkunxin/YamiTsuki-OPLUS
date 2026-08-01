@@ -179,22 +179,22 @@ fn daemon_loop(
         cpu.apply_mode(&active);
         gpu.apply_mode(&active);
 
-        // ── FAS: Frame-Aware Scheduling ──
-        {
+        // ── FAS: GPU-load-aware CPU scheduling (GPU control remains read-only on PLG110) ──
+        let (gpu_avg, gpu_current) = {
             let mut fas = fas_sched.lock().unwrap();
-            let gpu_avg = fas.update();
+            let avg = fas.update();
+            let current = fas.current_gpu_freq();
             if active == "performance" {
-                let scale = fas.freq_scale(gpu_avg);
-                // Adjust CPU freq ceiling based on GPU load when gaming
+                let scale = fas.freq_scale(avg);
+                // Adjust CPU ceiling only; never write unverified GED GPU control nodes.
                 for i in 0..8 {
                     let max = cpu.read_max_freq(i);
                     let target = (max as f64 * scale) as u64;
-                    if target > cpu.read_min_freq(i) {
-                        cpu.set_scaling_max(i, target);
-                    }
+                    if target > cpu.read_min_freq(i) { cpu.set_scaling_max(i, target); }
                 }
             }
-        }
+            (avg, current)
+        };
 
         // ── Thread optimization (game mode only) ──
         if active == "performance" {
@@ -245,11 +245,12 @@ fn daemon_loop(
 
         // ── Logging ──
         logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz temp={:.1}°C bat={}% io={} vm_sw={} scx={}",
+            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=readonly temp={:.1}°C bat={}% io={} vm_sw={} scx={}",
             active,
             cpu.read_freq(0) / 1000,
             cpu.read_freq(7) / 1000,
-            gpu.current_freq() / 1_000_000,
+            if gpu_current > 0 { gpu_current / 1_000_000 } else { gpu.current_freq() / 1_000_000 },
+            gpu_avg,
             thermal.cpu_temp(),
             read_sysfs(BATTERY_CAPACITY),
             io.current(),
