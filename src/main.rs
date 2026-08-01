@@ -253,7 +253,7 @@ fn daemon_loop(
             last_scx_status = scx_status.clone();
         }
         logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=readonly temp={:.1}°C bat={}% io={} vm_sw={}",
+            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=devfreq temp={:.1}°C bat={}% io={} vm_sw={}",
             active,
             cpu.read_freq(0) / 1000,
             cpu.read_freq(7) / 1000,

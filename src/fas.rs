@@ -49,8 +49,10 @@ impl FasScheduler {
     }
 
     pub fn current_gpu_freq(&self) -> u64 {
+        // PLG110 current_freqency format: "level frequency".
+        // The first field is an internal level (e.g. 44), not Hz.
         fs::read_to_string(GED_CURRENT_FREQ_PATH).ok()
-            .and_then(|raw| numbers(&raw).first().copied()).unwrap_or(0)
+            .and_then(|raw| numbers(&raw).get(1).copied()).unwrap_or(0)
     }
 
     pub fn update(&mut self) -> u32 {
