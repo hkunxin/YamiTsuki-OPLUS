@@ -163,6 +163,7 @@ fn daemon_loop(
 ) {
     let mut prev_mode = String::new();
     let mut was_dozing = false;
+    let mut last_scx_status = String::new();
 
     loop {
         let active = mode_mgr.active_mode();
@@ -187,7 +188,8 @@ fn daemon_loop(
             if active == "performance" {
                 let scale = fas.freq_scale(avg);
                 // Adjust CPU ceiling only; never write unverified GED GPU control nodes.
-                for i in 0..8 {
+                let core_count = cpu.big_cores.len() + cpu.little_cores.len();
+                for i in 0..core_count {
                     let max = cpu.read_max_freq(i);
                     let target = (max as f64 * scale) as u64;
                     if target > cpu.read_min_freq(i) { cpu.set_scaling_max(i, target); }
@@ -244,8 +246,13 @@ fn daemon_loop(
         }
 
         // ── Logging ──
+        let scx_status = scx::ScxManager::status_string();
+        if scx_status != last_scx_status {
+            logger::log(&format!("scx 状态: {}", scx_status));
+            last_scx_status = scx_status.clone();
+        }
         logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=readonly temp={:.1}°C bat={}% io={} vm_sw={} scx={}",
+            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=readonly temp={:.1}°C bat={}% io={} vm_sw={}",
             active,
             cpu.read_freq(0) / 1000,
             cpu.read_freq(7) / 1000,
@@ -255,7 +262,6 @@ fn daemon_loop(
             read_sysfs(BATTERY_CAPACITY),
             io.current(),
             vm.current_swappiness(),
-            scx::ScxManager::status_string(),
         ));
 
         thread::sleep(Duration::from_millis(1500));

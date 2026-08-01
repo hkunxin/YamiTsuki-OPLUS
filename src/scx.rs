@@ -86,17 +86,14 @@ impl ScxManager {
 
     pub fn status_string() -> String {
         if !Self::is_available() {
-            return "内核不支持 scx".to_string();
+            return "不支持".to_string();
         }
         if let Some(ops) = Self::current_scx() {
             format!("已加载: {}", ops)
         } else {
             let available = Self::detect_available();
-            if available.is_empty() {
-                "scx 可用，未找到调度器".to_string()
-            } else {
-                format!("待加载: {}", available.join(", "))
-            }
+            if available.is_empty() { "可用但未加载".to_string() }
+            else { format!("待加载: {}", available.join(", ")) }
         }
     }
 }
