@@ -60,7 +60,10 @@ jobs:
           # Copy compiled binary to bin/
           mkdir -p dist/bin dist/webroot
           cp target/${{ env.TARGET }}/release/yamitsuki_rs dist/bin/yamitsuki_rs
-          aarch64-linux-android-strip dist/bin/yamitsuki_rs
+          
+          # Strip binary using NDK's llvm-strip
+          STRIP_TOOL="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          $STRIP_TOOL dist/bin/yamitsuki_rs
 
           # Copy module files
           cp webroot/index.html dist/webroot/
