@@ -49,10 +49,19 @@ impl FasScheduler {
     }
 
     pub fn current_gpu_freq(&self) -> u64 {
-        // PLG110 current_freqency format: "level frequency".
-        // The first field is an internal level (e.g. 44), not Hz.
-        fs::read_to_string(GED_CURRENT_FREQ_PATH).ok()
-            .and_then(|raw| numbers(&raw).get(1).copied()).unwrap_or(0)
+        // PLG110 GED format is "level frequency" and may report kHz-like
+        // values, while devfreq cur_freq may be scaled by the vendor driver.
+        let ged = fs::read_to_string(GED_CURRENT_FREQ_PATH).ok()
+            .and_then(|raw| numbers(&raw).get(1).copied()).unwrap_or(0);
+        let devfreq = [
+            "/sys/devices/platform/soc/13000000.mali/devfreq/13000000.mali/cur_freq",
+            "/sys/class/misc/mali0/device/devfreq/13000000.mali/cur_freq",
+        ].iter().find_map(|path| fs::read_to_string(path).ok()
+            .and_then(|raw| raw.trim().parse::<u64>().ok()));
+        let value = if ged > 0 { ged } else { devfreq.unwrap_or(0) };
+        if value > 0 && value < 10_000_000 { value.saturating_mul(1000) }
+        else if value > 0 && value < 100_000_000 { value.saturating_mul(10) }
+        else { value }
     }
 
     pub fn update(&mut self) -> u32 {

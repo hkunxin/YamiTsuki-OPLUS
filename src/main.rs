@@ -40,9 +40,23 @@ const SPOOF_RESULT_FILE: &str = "/data/adb/modules/yamitsuki_oplus/device_spoof_
 const GAME_LIST: &str = "/data/adb/modules/yamitsuki_oplus/game_list.txt";
 
 const BATTERY_CAPACITY: &str = "/sys/class/power_supply/battery/capacity";
+const BATTERY_VOLTAGE: &str = "/sys/class/power_supply/battery/voltage_now";
+const BATTERY_CURRENT: &str = "/sys/class/power_supply/battery/current_now";
+const BATTERY_POWER: &str = "/sys/class/power_supply/battery/power_now";
 
 fn read_sysfs(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_default().trim().to_string()
+}
+
+fn battery_power_watts() -> String {
+    let parse = |path: &str| read_sysfs(path).parse::<i64>().ok();
+    if let Some(microwatts) = parse(BATTERY_POWER) {
+        return format!("{:.2}", (microwatts.unsigned_abs() as f64) / 1_000_000.0);
+    }
+    match (parse(BATTERY_VOLTAGE), parse(BATTERY_CURRENT)) {
+        (Some(uv), Some(ua)) => format!("{:.2}", (uv.unsigned_abs() as f64) * (ua.unsigned_abs() as f64) / 1_000_000_000_000.0),
+        _ => "NA".to_string(),
+    }
 }
 
 /// ── 命令管道事件循环 ──
@@ -253,7 +267,7 @@ fn daemon_loop(
             last_scx_status = scx_status.clone();
         }
         logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=devfreq temp={:.1}°C bat={}% io={} vm_sw={}",
+            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=devfreq temp={:.1}°C bat={}% power={}W io={} vm_sw={}",
             active,
             cpu.read_freq(0) / 1000,
             cpu.read_freq(7) / 1000,
@@ -261,6 +275,7 @@ fn daemon_loop(
             gpu_avg,
             thermal.cpu_temp(),
             read_sysfs(BATTERY_CAPACITY),
+            battery_power_watts(),
             io.current(),
             vm.current_swappiness(),
         ));
