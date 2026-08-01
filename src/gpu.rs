@@ -1,16 +1,15 @@
 use std::fs;
 
-// Adreno (Snapdragon)
 const GPU_MAX_FREQ: &str = "/sys/class/kgsl/kgsl-3d0/max_gpuclk";
 const GPU_AVAIL_FREQ: &str = "/sys/class/kgsl/kgsl-3d0/gpu_available_frequencies";
 const GPU_FORCE_RAIL: &str = "/sys/class/kgsl/kgsl-3d0/force_rail_on";
 
-// Mali (MediaTek Dimensity)
-const MALI_MAX_FREQ: &str = "/sys/class/misc/mali0/device/max_freq";
-const MALI_AVAIL_FREQ: &str = "/sys/class/misc/mali0/device/available_frequencies";
-const MALI_CUR_FREQ: &str = "/sys/class/misc/mali0/device/cur_freq";
+const GED_GPU_FREQ: &str = "/sys/kernel/thermal/gpu_freq";
+const GED_UTIL: &str = "/sys/kernel/ged/hal/gpu_utilization";
+const GED_SUM_LOADING: &str = "/sys/kernel/ged/hal/gpu_sum_loading";
+const GED_BOOST_FREQ: &str = "/sys/kernel/ged/hal/custom_boost_gpu_freq";
+const GED_UPBOUND_FREQ: &str = "/sys/kernel/ged/hal/custom_upbound_gpu_freq";
 
-/// Unified GPU manager supporting both Adreno (Snapdragon) and Mali (Dimensity)
 pub struct GpuManager {
     vendor: GpuVendor,
     available_freqs: Vec<u64>,
@@ -19,98 +18,84 @@ pub struct GpuManager {
 #[derive(PartialEq)]
 enum GpuVendor {
     Adreno,
-    Mali,
+    GedMali,
     Unknown,
+}
+
+fn numbers(raw: &str) -> Vec<u64> {
+    raw.split_whitespace()
+        .filter_map(|part| part.trim_matches(|c: char| !c.is_ascii_digit()).parse().ok())
+        .filter(|value: &u64| *value > 0)
+        .collect()
+}
+
+fn readable(path: &str) -> bool {
+    fs::read_to_string(path).map(|s| !s.trim().is_empty()).unwrap_or(false)
+}
+
+fn writable_numeric(path: &str, value: u64) -> bool {
+    if value == 0 || !readable(path) {
+        return false;
+    }
+    fs::write(path, value.to_string()).is_ok()
 }
 
 impl GpuManager {
     pub fn new() -> Self {
-        // Auto-detect GPU vendor
-        if fs::metadata(GPU_MAX_FREQ).is_ok() {
+        if readable(GPU_MAX_FREQ) {
             let freqs = fs::read_to_string(GPU_AVAIL_FREQ)
-                .unwrap_or_default()
-                .trim()
-                .split_whitespace()
-                .filter_map(|s| s.parse::<u64>().ok())
-                .collect();
-            GpuManager {
-                vendor: GpuVendor::Adreno,
-                available_freqs: freqs,
+                .map(|raw| numbers(&raw))
+                .unwrap_or_default();
+            GpuManager { vendor: GpuVendor::Adreno, available_freqs: freqs }
+        } else if readable(GED_UTIL)
+            || readable(GED_SUM_LOADING)
+            || readable(GED_GPU_FREQ)
+            || readable(GED_BOOST_FREQ)
+            || readable(GED_UPBOUND_FREQ)
+        {
+            let mut freqs = Vec::new();
+            for path in [GED_BOOST_FREQ, GED_UPBOUND_FREQ, GED_GPU_FREQ] {
+                if let Ok(raw) = fs::read_to_string(path) {
+                    freqs.extend(numbers(&raw));
+                }
             }
-        } else if fs::metadata(MALI_MAX_FREQ).is_ok() || fs::metadata(MALI_AVAIL_FREQ).is_ok() {
-            let freqs = fs::read_to_string(MALI_AVAIL_FREQ)
-                .unwrap_or_default()
-                .trim()
-                .split_whitespace()
-                .filter_map(|s| s.parse::<u64>().ok())
-                .collect();
-            GpuManager {
-                vendor: GpuVendor::Mali,
-                available_freqs: freqs,
-            }
+            freqs.sort_unstable();
+            freqs.dedup();
+            GpuManager { vendor: GpuVendor::GedMali, available_freqs: freqs }
         } else {
-            GpuManager {
-                vendor: GpuVendor::Unknown,
-                available_freqs: vec![],
-            }
+            GpuManager { vendor: GpuVendor::Unknown, available_freqs: Vec::new() }
         }
     }
 
     pub fn current_freq(&self) -> u64 {
         match self.vendor {
-            GpuVendor::Adreno => {
-                fs::read_to_string(GPU_MAX_FREQ)
-                    .unwrap_or_default()
-                    .trim()
-                    .parse()
-                    .unwrap_or(0)
-            }
-            GpuVendor::Mali => {
-                fs::read_to_string(MALI_CUR_FREQ)
-                    .unwrap_or_default()
-                    .trim()
-                    .parse()
-                    .unwrap_or(0)
-            }
-            GpuVendor::Unknown => 0,
+            GpuVendor::Adreno => fs::read_to_string(GPU_MAX_FREQ)
+                .ok().and_then(|raw| numbers(&raw).into_iter().next()).unwrap_or(0),
+            // GED nodes exposed by PLG110 report limits/utilization, not a reliable current clock.
+            GpuVendor::GedMali | GpuVendor::Unknown => 0,
         }
     }
 
-    fn max_gpu_freq(&self) -> u64 {
-        self.available_freqs.last().copied().unwrap_or(700_000_000)
-    }
-
-    fn mid_gpu_freq(&self) -> u64 {
-        if self.available_freqs.len() >= 2 {
-            let mid_idx = self.available_freqs.len() / 2;
-            self.available_freqs[mid_idx]
-        } else {
-            self.max_gpu_freq() / 2
+    fn target_freq(&self, mode: &str) -> Option<u64> {
+        if self.available_freqs.is_empty() { return None; }
+        match mode {
+            "performance" => self.available_freqs.last().copied(),
+            "powersave" => self.available_freqs.first().copied(),
+            _ => self.available_freqs.get(self.available_freqs.len() / 2).copied(),
         }
-    }
-
-    fn min_gpu_freq(&self) -> u64 {
-        self.available_freqs.first().copied().unwrap_or(300_000_000)
     }
 
     pub fn apply_mode(&self, mode: &str) {
-        let target = match mode {
-            "performance" => self.max_gpu_freq(),
-            "powersave" => self.min_gpu_freq(),
-            _ => self.mid_gpu_freq(),
-        };
-
+        let Some(target) = self.target_freq(mode) else { return; };
         match self.vendor {
             GpuVendor::Adreno => {
-                let _ = fs::write(GPU_MAX_FREQ, target.to_string());
-                if mode == "performance" {
-                    let _ = fs::write(GPU_FORCE_RAIL, "1");
-                } else {
-                    let _ = fs::write(GPU_FORCE_RAIL, "0");
-                }
+                let _ = writable_numeric(GPU_MAX_FREQ, target);
+                let _ = fs::write(GPU_FORCE_RAIL, if mode == "performance" { "1" } else { "0" });
             }
-            GpuVendor::Mali => {
-                let _ = fs::write(MALI_MAX_FREQ, target.to_string());
+            GpuVendor::GedMali => {
+                // Only write nodes that are present and expose a numeric value.
+                let _ = writable_numeric(GED_UPBOUND_FREQ, target);
+                if mode == "performance" { let _ = writable_numeric(GED_BOOST_FREQ, target); }
             }
             GpuVendor::Unknown => {}
         }
@@ -119,8 +104,11 @@ impl GpuManager {
     pub fn vendor_name(&self) -> &str {
         match self.vendor {
             GpuVendor::Adreno => "Adreno",
-            GpuVendor::Mali => "Mali",
+            GpuVendor::GedMali => "Mali (GED)",
             GpuVendor::Unknown => "Unknown",
         }
     }
 }
+
+pub(crate) const GED_UTIL_PATH: &str = GED_UTIL;
+pub(crate) const GED_LOADING_PATH: &str = GED_SUM_LOADING;

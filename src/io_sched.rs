@@ -1,26 +1,18 @@
 use std::fs;
 
-const IO_SCHED_BASE: &str = "/sys/block/mmcblk0/queue/scheduler";
-const IO_SCHED_BASE2: &str = "/sys/block/sda/queue/scheduler";
-const IO_SCHED_BASE3: &str = "/sys/block/nvme0n1/queue/scheduler";
+const BLOCK_BASE: &str = "/sys/block";
 
-const READ_AHEAD: &str = "/sys/block/mmcblk0/queue/read_ahead_kb";
-const NR_REQUESTS: &str = "/sys/block/mmcblk0/queue/nr_requests";
-const RQ_AFFINITY: &str = "/sys/block/mmcblk0/queue/rq_affinity";
-const NOMERGES: &str = "/sys/block/mmcblk0/queue/nomerges";
-
-pub enum IoScheduler {
-    /// CFQ — 省电、低功耗
-    Cfq,
-    /// mq-deadline — 均衡
-    MqDeadline,
-    /// deadline — 游戏低延迟
-    Deadline,
-    /// Noop — 纯省电
-    Noop,
-}
-
+pub enum IoScheduler { Cfq, MqDeadline, Deadline, Noop }
 pub struct IoManager;
+
+fn queue_files() -> Vec<String> {
+    let Ok(entries) = fs::read_dir(BLOCK_BASE) else { return Vec::new(); };
+    entries.filter_map(|entry| {
+        let name = entry.ok()?.file_name().to_string_lossy().into_owned();
+        let path = format!("{}/{}/queue/scheduler", BLOCK_BASE, name);
+        fs::metadata(&path).ok().map(|_| path)
+    }).collect()
+}
 
 impl IoManager {
     pub fn apply(&self, sched: IoScheduler, mode: &str) {
@@ -30,60 +22,28 @@ impl IoManager {
             IoScheduler::Deadline => ("deadline", "512", "256", "2", "1"),
             IoScheduler::Noop => ("noop", "64", "32", "0", "1"),
         };
-
-        for base in &[IO_SCHED_BASE, IO_SCHED_BASE2, IO_SCHED_BASE3] {
-            if let Ok(avail) = fs::read_to_string(base) {
-                let available_list = avail.trim().to_string();
-                // Check if our target scheduler exists
-                if available_list.contains(name) {
-                    let _ = fs::write(base, name);
+        for scheduler in queue_files() {
+            if let Ok(avail) = fs::read_to_string(&scheduler) {
+                if avail.split_whitespace().any(|item| item.trim_matches(['[', ']']) == name) {
+                    let _ = fs::write(&scheduler, name);
+                }
+                if let Some(queue) = scheduler.strip_suffix("/scheduler") {
+                    let values = [("read_ahead_kb", ra_kb), ("nr_requests", nr_req), ("rq_affinity", rq_af), ("nomerges", nomerge)];
+                    for (node, value) in values { let _ = fs::write(format!("{}/{}", queue, node), value); }
+                    if mode == "powersave" { let _ = fs::write(format!("{}/read_ahead_kb", queue), "64"); let _ = fs::write(format!("{}/nr_requests", queue), "32"); }
+                    if mode == "performance" { let _ = fs::write(format!("{}/read_ahead_kb", queue), "1024"); let _ = fs::write(format!("{}/nr_requests", queue), "512"); }
                 }
             }
-        }
-
-        // Read-ahead, nr_requests, etc.
-        let _ = fs::write(READ_AHEAD, ra_kb);
-        let _ = fs::write(NR_REQUESTS, nr_req);
-        let _ = fs::write(RQ_AFFINITY, rq_af);
-        let _ = fs::write(NOMERGES, nomerge);
-
-        // Per-mode additional tuning
-        match mode {
-            "powersave" => {
-                let _ = fs::write(READ_AHEAD, "64");
-                let _ = fs::write(NR_REQUESTS, "32");
-            }
-            "performance" => {
-                let _ = fs::write(READ_AHEAD, "1024");
-                let _ = fs::write(NR_REQUESTS, "512");
-            }
-            _ => {}
         }
     }
 
     pub fn scheduler_for_mode(mode: &str) -> IoScheduler {
-        match mode {
-            "powersave" => IoScheduler::Cfq,
-            "performance" => IoScheduler::Deadline,
-            _ => IoScheduler::MqDeadline,
-        }
+        match mode { "powersave" => IoScheduler::Cfq, "performance" => IoScheduler::Deadline, _ => IoScheduler::MqDeadline }
     }
 
-    /// Return current active scheduler name
     pub fn current(&self) -> String {
-        for base in &[IO_SCHED_BASE, IO_SCHED_BASE2, IO_SCHED_BASE3] {
-            if let Ok(raw) = fs::read_to_string(base) {
-                let s = raw.trim().to_string();
-                // Format: "noop deadline [cfq]" → extract bracketed
-                if let Some(start) = s.find('[') {
-                    if let Some(end) = s.find(']') {
-                        return s[start + 1..end].to_string();
-                    }
-                }
-                // Or plain format
-                return s;
-            }
-        }
-        "none".to_string()
+        queue_files().into_iter().find_map(|path| fs::read_to_string(path).ok()).and_then(|s| {
+            s.split_whitespace().find(|item| item.starts_with('[') && item.ends_with(']')).map(|item| item.trim_matches(['[', ']']).to_string())
+        }).unwrap_or_else(|| "none".to_string())
     }
 }

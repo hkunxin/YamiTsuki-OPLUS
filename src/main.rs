@@ -39,7 +39,6 @@ const GOVERNOR_SELECTED_FILE: &str = "/data/adb/modules/yamitsuki_oplus/governor
 const SPOOF_RESULT_FILE: &str = "/data/adb/modules/yamitsuki_oplus/device_spoof_result.txt";
 const GAME_LIST: &str = "/data/adb/modules/yamitsuki_oplus/game_list.txt";
 
-const THERMAL_ZONE: &str = "/sys/class/thermal/thermal_zone0/temp";
 const BATTERY_CAPACITY: &str = "/sys/class/power_supply/battery/capacity";
 
 fn read_sysfs(path: &str) -> String {

@@ -1,5 +1,6 @@
 use std::fs;
-use std::time::Duration;
+
+use crate::gpu::{GED_LOADING_PATH, GED_UTIL_PATH};
 
 const GPU_BUSY: &str = "/sys/class/kgsl/kgsl-3d0/gpubusy";
 const GPU_UTIL: &str = "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage";
@@ -9,63 +10,48 @@ pub struct FasScheduler {
     idx: usize,
 }
 
+fn bounded_percent(raw: &str) -> Option<u32> {
+    let value = raw.split_whitespace().find_map(|part| part.parse::<u32>().ok())?;
+    (value <= 100).then_some(value)
+}
+
 impl FasScheduler {
     pub fn new() -> Self {
-        FasScheduler {
-            history: [0; 4],
-            idx: 0,
-        }
+        FasScheduler { history: [0; 4], idx: 0 }
     }
 
-    /// Read GPU utilization percentage.
-    /// On Adreno: kgsl-3d0/gpubusy (format: "busy total")
-    /// On Mali: try misc/mali0 device
+    /// Read the real GPU utilization percentage.
+    /// GED reports utilization directly on the OPPO/MediaTek target.
     pub fn gpu_util(&self) -> u32 {
-        // Try Adreno
+        if let Ok(raw) = fs::read_to_string(GED_UTIL_PATH) {
+            if let Some(value) = bounded_percent(&raw) {
+                return value;
+            }
+        }
+        if let Ok(raw) = fs::read_to_string(GED_LOADING_PATH) {
+            if let Some(value) = bounded_percent(&raw) {
+                return value;
+            }
+        }
         if let Ok(raw) = fs::read_to_string(GPU_BUSY) {
-            let parts: Vec<&str> = raw.trim().split_whitespace().collect();
-            if parts.len() >= 2 {
-                let busy: u64 = parts[0].parse().unwrap_or(0);
-                let total: u64 = parts[1].parse().unwrap_or(1);
+            let mut values = raw.split_whitespace().filter_map(|part| part.parse::<u64>().ok());
+            if let (Some(busy), Some(total)) = (values.next(), values.next()) {
                 if total > 0 {
-                    return ((busy * 100) / total) as u32;
+                    return ((busy.saturating_mul(100) / total).min(100)) as u32;
                 }
             }
         }
-        // Try Mali
-        if let Ok(raw) = fs::read_to_string(
-            "/sys/class/misc/mali0/device/gpu_busy_percentage",
-        ) {
-            return raw.trim().parse().unwrap_or(0);
-        }
-        // Try new Adreno
-        if let Ok(raw) = fs::read_to_string(GPU_UTIL) {
-            return raw.trim().parse().unwrap_or(0);
-        }
-        0
+        fs::read_to_string(GPU_UTIL).ok().and_then(|raw| bounded_percent(&raw)).unwrap_or(0)
     }
 
-    /// Push latest reading, return smoothed value
     pub fn update(&mut self) -> u32 {
         let curr = self.gpu_util();
         self.history[self.idx] = curr;
-        self.idx = (self.idx + 1) % 4;
-        let sum: u32 = self.history.iter().sum();
-        sum / 4
+        self.idx = (self.idx + 1) % self.history.len();
+        self.history.iter().sum::<u32>() / self.history.len() as u32
     }
 
-    /// Returns a frequency scale factor (0.0 .. 1.0) based on GPU load.
-    /// High GPU load → return close to 1.0 (allow max freq)
-    /// Low GPU load → return lower scale
     pub fn freq_scale(&self, avg_util: u32) -> f64 {
-        if avg_util > 80 {
-            1.0  // Near max — frame drops likely, boost CPU
-        } else if avg_util > 60 {
-            0.85
-        } else if avg_util > 40 {
-            0.7
-        } else {
-            0.5
-        }
+        if avg_util > 80 { 1.0 } else if avg_util > 60 { 0.85 } else if avg_util > 40 { 0.7 } else { 0.5 }
     }
 }
