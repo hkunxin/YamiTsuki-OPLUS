@@ -43,18 +43,43 @@ const BATTERY_CAPACITY: &str = "/sys/class/power_supply/battery/capacity";
 const BATTERY_VOLTAGE: &str = "/sys/class/power_supply/battery/voltage_now";
 const BATTERY_CURRENT: &str = "/sys/class/power_supply/battery/current_now";
 const BATTERY_POWER: &str = "/sys/class/power_supply/battery/power_now";
+const BATTERY_POWER_AVG: &str = "/sys/class/power_supply/battery/power_avg";
 
 fn read_sysfs(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_default().trim().to_string()
 }
 
+/// 自动检测电压/电流单位并计算功率 (W)。
+/// 标准 Linux: voltage_now=µV, current_now=µA → P(µW)/1e6
+/// OPLUS/MTK gauge: voltage_now=mV, current_now=mA → P(mW)/1e3
 fn battery_power_watts() -> String {
     let parse = |path: &str| read_sysfs(path).parse::<i64>().ok();
-    if let Some(microwatts) = parse(BATTERY_POWER) {
-        return format!("{:.2}", (microwatts.unsigned_abs() as f64) / 1_000_000.0);
+    let parse_nz = |path: &str| parse(path).filter(|v| *v != 0);
+
+    // 1) 优先使用 power_now / power_avg（标准单位 µW）
+    for p in [BATTERY_POWER, BATTERY_POWER_AVG] {
+        if let Some(microwatts) = parse_nz(p) {
+            return format!("{:.2}", (microwatts.unsigned_abs() as f64) / 1_000_000.0);
+        }
     }
-    match (parse(BATTERY_VOLTAGE), parse(BATTERY_CURRENT)) {
-        (Some(uv), Some(ua)) => format!("{:.2}", (uv.unsigned_abs() as f64) * (ua.unsigned_abs() as f64) / 1_000_000_000_000.0),
+
+    // 2) 回退: V × I，自动检测单位
+    match (parse_nz(BATTERY_VOLTAGE), parse_nz(BATTERY_CURRENT)) {
+        (Some(v), Some(i)) => {
+            let v_abs = v.unsigned_abs() as f64;
+            let i_abs = i.unsigned_abs() as f64;
+            let watts = if v_abs > 100_000.0 && i_abs > 100_000.0 {
+                // 标准单位: µV × µA = µW → W
+                v_abs * i_abs / 1_000_000_000_000.0
+            } else if v_abs > 1_000.0 && i_abs > 1_000.0 {
+                // 可能是 mV × mA = mW → W（OPLUS/MTK gauge 常见）
+                v_abs * i_abs / 1_000.0
+            } else {
+                // 极小值，按 µV/µA 处理
+                v_abs * i_abs / 1_000_000_000_000.0
+            };
+            format!("{:.2}", watts)
+        }
         _ => "NA".to_string(),
     }
 }
