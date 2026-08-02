@@ -4,14 +4,17 @@ const THERMAL_BASE: &str = "/sys/class/thermal";
 const SOC_MAX_TYPE: &str = "soc_max";
 const CPU_PREFIX: &str = "cpu-";
 const GPU_PREFIX: &str = "gpu";
+const SHELL_TEMP: &str = "/proc/shell-temp";
 
 pub struct ThermalManager {
     original: i64,
 }
 
 fn read_zone_temp(zone: &str) -> Option<i64> {
-    fs::read_to_string(format!("{}/{}/temp", THERMAL_BASE, zone))
-        .ok()?.trim().parse().ok()
+    let value = fs::read_to_string(format!("{}/{}/temp", THERMAL_BASE, zone))
+        .ok()?.trim().parse::<i64>().ok()?;
+    // 过滤 MTK 未连接/无效传感器常见哨兵值，避免热控被错误触发。
+    (value > -20_000 && value < 150_000).then_some(value)
 }
 
 impl ThermalManager {
@@ -43,17 +46,32 @@ impl ThermalManager {
         match mode { "powersave" => 28_000, "balance" => 35_000, "performance" => 42_000, _ => 35_000 }
     }
 
-    /// Thermal sensor temp nodes are normally read-only. Do not write arbitrary charger zones.
-    /// Return false unless a vendor fake-temp node explicitly exists and accepts the value.
+    /// PLG110 专用：只写 /proc/shell-temp，保留所有真实 thermal zone 和硬件保护。
+    /// extreme_gt 使用 index + 温度格式；这里仅更新 shell_front/frame/back 的显示索引。
     pub fn apply_spoof(&self, mode: &str) -> bool {
-        let target = self.spoof_temp(mode).to_string();
-        ["/sys/kernel/oplus_thermal/fake_temp", "/sys/class/thermal/thermal_message/sconfig"]
-            .iter().filter(|path| fs::metadata(path).is_ok()).any(|path| fs::write(path, &target).is_ok())
+        let Some(real) = Self::zone_names().into_iter().find_map(|zone| {
+            (Self::zone_type(&zone) == "shell_front").then(|| read_zone_temp(&zone)).flatten()
+        }) else { return false; };
+        let target = match mode {
+            "powersave" => real.min(29_000),
+            "balance" => real,
+            "performance" => real,
+            _ => real,
+        };
+        if fs::metadata(SHELL_TEMP).is_err() { return false; }
+        // 三个外壳温度索引：front/frame/back。目标温度不低于真实 shell 温度。
+        (0..3).all(|index| fs::write(SHELL_TEMP, format!("{} {}", index, target)).is_ok())
     }
 
     pub fn restore(&self) {}
 
     pub fn cpu_temp(&self) -> f64 { self.real_temp() as f64 / 1000.0 }
+
+    pub fn max_protection_temp(&self) -> i64 {
+        let soc = Self::soc_temp().unwrap_or(0);
+        let cpu = self.cpu_core_temp().map(|v| (v * 1000.0) as i64).unwrap_or(0);
+        soc.max(cpu)
+    }
 
     pub fn gpu_temp(&self) -> Option<f64> {
         Self::zone_names().into_iter().filter_map(|zone| {

@@ -42,6 +42,16 @@ impl CpuManager {
         }
     }
 
+    /// Android 上保持依赖最少：使用 loadavg 估算全局 CPU 压力。
+    /// 该值不是每核精确利用率，但足够用于频率上限的迟滞式调节。
+    pub fn load_percent(&self) -> u32 {
+        let load = fs::read_to_string("/proc/loadavg")
+            .ok()
+            .and_then(|raw| raw.split_whitespace().next()?.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        ((load / self.cores.max(1) as f64) * 100.0).round().clamp(0.0, 100.0) as u32
+    }
+
     pub fn read_freq(&self, core: u32) -> u64 {
         let path = format!("{}/cpu{}/cpufreq/scaling_cur_freq", CPU_BASE, core);
         fs::read_to_string(&path)
@@ -72,6 +82,31 @@ impl CpuManager {
     pub fn set_scaling_max(&self, core: u32, freq: u64) -> bool {
         let path = format!("{}/cpu{}/cpufreq/scaling_max_freq", CPU_BASE, core);
         fs::write(&path, freq.to_string()).is_ok()
+    }
+
+    /// 根据 CPU/GPU 负载和 SoC 温度动态调整频率上限。
+    /// 只降低或恢复 scaling_max_freq，不抬高 scaling_min_freq。
+    pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, gpu_load: u32, temp_mc: i64) {
+        let demand = cpu_load.max(gpu_load);
+        let base = match mode {
+            "powersave" => 0.40,
+            "performance" => 1.00,
+            _ => 0.70,
+        };
+        let demand_boost = if demand >= 85 { 0.25 } else if demand >= 65 { 0.15 } else if demand >= 45 { 0.05 } else { 0.0 };
+        let thermal_limit = if temp_mc >= 56_000 { 0.45 }
+            else if temp_mc >= 52_000 { 0.65 }
+            else if temp_mc >= 48_000 { 0.85 }
+            else { 1.0 };
+        let factor = (base + demand_boost).min(1.0) * thermal_limit;
+
+        for core in 0..self.cores {
+            let hw_max = self.read_max_freq(core);
+            let min = self.read_min_freq(core);
+            if hw_max == 0 { continue; }
+            let target = ((hw_max as f64 * factor) as u64).max(min);
+            let _ = self.set_scaling_max(core, target);
+        }
     }
 
     fn write_max_freq(&self, core: u32, freq: u64) -> bool {

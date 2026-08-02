@@ -15,13 +15,13 @@ impl VmManager {
     pub fn apply_mode(&self, mode: &str) {
         match mode {
             "powersave" => {
-                // Aggressive swap to save RAM, low cache pressure for I/O
-                let _ = fs::write(VM_SWAPPINESS, "60");
-                let _ = fs::write(VM_DIRTY_RATIO, "20");
-                let _ = fs::write(VM_DIRTY_BG_RATIO, "5");
-                let _ = fs::write(VM_DIRTY_WB_CS, "1500");
-                let _ = fs::write(VM_DIRTY_EXPIRE, "3000");
-                let _ = fs::write(VM_VFS_CACHE, "100");
+                // PLG110/UFS：避免高 swappiness 导致额外 swap 写入和功耗。
+                let _ = fs::write(VM_SWAPPINESS, "15");
+                let _ = fs::write(VM_DIRTY_RATIO, "10");
+                let _ = fs::write(VM_DIRTY_BG_RATIO, "3");
+                let _ = fs::write(VM_DIRTY_WB_CS, "1000");
+                let _ = fs::write(VM_DIRTY_EXPIRE, "2000");
+                let _ = fs::write(VM_VFS_CACHE, "80");
                 let _ = fs::write(VM_OVERCOMMIT, "0");
             }
             "balance" => {

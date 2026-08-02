@@ -199,31 +199,21 @@ fn daemon_loop(
         if mode_changed {
             logger::log(&format!("模式切换: {} -> {}", prev_mode, active));
             prev_mode = active.clone();
-            vm.drop_caches();
         }
 
-        // ── Core frequency control ──
+        // ── Core/GPU 基础模式控制 ──
+        // 不执行 drop_caches：PLG110 的 UFS 重新读盘会抵消省电收益。
         cpu.apply_mode(&active);
         gpu.apply_mode(&active);
 
-        // ── FAS: GPU-load-aware CPU scheduling (GPU control remains read-only on PLG110) ──
+        // ── PLG110 智能调度：CPU/GPU 负载 + SoC/CPU 温度 ──
+        let cpu_load = cpu.load_percent();
         let (gpu_avg, gpu_current) = {
             let mut fas = fas_sched.lock().unwrap();
-            let avg = fas.update();
-            let current = fas.current_gpu_freq();
-            if active == "performance" {
-                let scale = fas.freq_scale(avg);
-                // Adjust CPU ceiling only; never write unverified GED GPU control nodes.
-                let core_count = cpu.big_cores.len() + cpu.little_cores.len();
-                for i in 0..core_count {
-                    let Ok(core) = u32::try_from(i) else { continue; };
-                    let max = cpu.read_max_freq(core);
-                    let target = (max as f64 * scale) as u64;
-                    if target > cpu.read_min_freq(core) { cpu.set_scaling_max(core, target); }
-                }
-            }
-            (avg, current)
+            (fas.update(), fas.current_gpu_freq())
         };
+        let protection_temp = thermal.max_protection_temp();
+        cpu.apply_dynamic_cap(&active, cpu_load, gpu_avg, protection_temp);
 
         // ── Thread optimization (game mode only) ──
         if active == "performance" {
