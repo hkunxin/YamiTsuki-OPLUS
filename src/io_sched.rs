@@ -22,7 +22,7 @@ fn real_queue_files() -> Vec<String> {
 /// 检查某个调度器是否在可用列表中
 fn scheduler_available(scheduler_path: &str, name: &str) -> bool {
     fs::read_to_string(scheduler_path)
-        .map(|avail| avail.split_whitespace().any(|item| item.trim_matches(['[', ']']) == name))
+        .map(|avail| avail.split_whitespace().any(|item| item.trim_matches(&['[', ']'][..]) == name))
         .unwrap_or(false)
 }
 
