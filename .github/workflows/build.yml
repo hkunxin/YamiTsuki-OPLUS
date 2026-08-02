@@ -27,6 +27,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ env.TARGET }}
+          components: rustfmt
 
       - name: Setup Android NDK
         run: |
