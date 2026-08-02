@@ -25,10 +25,7 @@ impl DozeManager {
             .args(&["deviceidle", "force-idle", "deep"])
             .output();
 
-        // 2. Kill unnecessary wakelocks
-        self.release_wakelocks();
-
-        // 3. Lower max CPU freq for background
+        // 2. Lower max CPU freq for background
         for cpu in &[4, 5, 6, 7] {
             // big cores
             let path = format!("/sys/devices/system/cpu/cpu{}/cpufreq/scaling_max_freq", cpu);
@@ -49,8 +46,6 @@ impl DozeManager {
             .args(&["put", "global", "animator_duration_scale", "0.0"])
             .output();
 
-        // 5. Drop caches to reduce background activity
-        let _ = fs::write("/proc/sys/vm/drop_caches", "3");
     }
 
     /// Exit doze: restore to normal
@@ -83,11 +78,4 @@ impl DozeManager {
         self.enabled
     }
 
-    fn release_wakelocks(&self) {
-        // Kill common wakelock holders
-        let _ = Command::new("sh")
-            .arg("-c")
-            .arg("dumpsys battery unplug 2>/dev/null; sleep 0.5; dumpsys battery reset 2>/dev/null")
-            .output();
-    }
 }

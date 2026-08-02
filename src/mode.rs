@@ -14,9 +14,9 @@ impl ModeManager {
     pub fn active_mode(&self) -> String {
         let mode = fs::read_to_string(MODE_FILE).unwrap_or_else(|_| "auto".to_string()).trim().to_string();
         if mode != "auto" { return mode; }
-        if self.is_game_running() { "performance".to_string() }
-        else if self.is_screen_off() || self.battery_level() < 15 { "powersave".to_string() }
-        else { "balance".to_string() }
+        if self.is_screen_off() || self.battery_level() < 15 { return "powersave".to_string(); }
+        if self.is_game_running() && self.battery_level() > 25 { return "performance".to_string(); }
+        "balance".to_string()
     }
 
     fn battery_level(&self) -> u32 { fs::read_to_string(BATTERY_CAPACITY).unwrap_or_default().trim().parse().unwrap_or(100) }
@@ -31,9 +31,12 @@ impl ModeManager {
 
     fn is_game_running(&self) -> bool {
         let Ok(list) = fs::read_to_string(GAME_LIST) else { return false; };
-        list.lines().map(|line| line.split('#').next().unwrap_or("").trim()).filter(|pkg| !pkg.is_empty()).any(|pkg| {
-            Command::new("pidof").arg(pkg).output().map(|output| !output.stdout.is_empty()).unwrap_or(false)
-        })
+        let Ok(output) = Command::new("dumpsys").args(["activity", "activities"]).output() else { return false; };
+        let activity = String::from_utf8_lossy(&output.stdout);
+        list.lines()
+            .map(|line| line.split('#').next().unwrap_or("").trim())
+            .filter(|pkg| !pkg.is_empty())
+            .any(|pkg| activity.contains(pkg))
     }
 
     #[allow(dead_code)]

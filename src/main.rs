@@ -211,6 +211,9 @@ fn daemon_loop(
     let mut diag_tick: u32 = 0;
     let mut last_foreground = String::new();
     let mut last_top_processes = String::new();
+    let mut gpu_protection_level: u8 = 0;
+    let mut gpu_high_ticks: u8 = 0;
+    let mut gpu_clear_ticks: u8 = 0;
 
     loop {
         let active = mode_mgr.active_mode();
@@ -222,10 +225,10 @@ fn daemon_loop(
             prev_mode = active.clone();
         }
 
-        // ── Core/GPU 基础模式控制 ──
-        // 不执行 drop_caches：PLG110 的 UFS 重新读盘会抵消省电收益。
-        cpu.apply_mode(&active);
-        gpu.apply_mode(&active);
+        if mode_changed {
+            cpu.apply_mode(&active);
+            gpu.apply_mode(&active);
+        }
 
         // ── PLG110 智能调度：CPU/GPU 负载 + SoC/CPU 温度 ──
         let cpu_load = cpu.load_percent();
@@ -234,7 +237,34 @@ fn daemon_loop(
             (fas.update(), fas.current_gpu_freq())
         };
         let protection_temp = thermal.max_protection_temp();
-        let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, protection_temp);
+        let (voltage_raw, current_raw, power_inst, power_avg) = power_sampler.sample();
+        let power_watts = power_inst.parse::<f64>().unwrap_or(0.0);
+        let gpu_temp_c = thermal.gpu_temp().unwrap_or(0.0);
+        let gpu_high = gpu_avg >= 85 && (gpu_temp_c >= 52.0 || power_watts >= 3.5);
+        let gpu_clear = gpu_avg <= 45 && gpu_temp_c > 0.0 && gpu_temp_c <= 48.0 && power_watts < 2.5;
+        if gpu_high {
+            gpu_high_ticks = gpu_high_ticks.saturating_add(1);
+            gpu_clear_ticks = 0;
+        } else if gpu_clear {
+            gpu_clear_ticks = gpu_clear_ticks.saturating_add(1);
+            gpu_high_ticks = 0;
+        } else {
+            gpu_high_ticks = 0;
+            gpu_clear_ticks = 0;
+        }
+        let battery_level = read_sysfs(BATTERY_CAPACITY).parse::<u32>().unwrap_or(100);
+        let requested_level = if mode_mgr.is_screen_off() || battery_level < 15 { 3 }
+            else if gpu_high_ticks >= 3 { 2 }
+            else if gpu_high_ticks >= 1 { 1 }
+            else if gpu_clear_ticks >= 8 { 0 }
+            else { gpu_protection_level };
+        if requested_level != gpu_protection_level && (mode_changed || requested_level > 0 || gpu_clear_ticks >= 8) {
+            if gpu.apply_protection(&active, requested_level) {
+                gpu_protection_level = requested_level;
+                logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W", requested_level, gpu_avg, gpu_temp_c, power_watts));
+            }
+        }
+        let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, protection_temp, power_watts);
 
         // ── Thread optimization (game mode only) ──
         if active == "performance" {
@@ -289,12 +319,11 @@ fn daemon_loop(
             logger::log(&format!("scx 状态: {}", scx_status));
             last_scx_status = scx_status.clone();
         }
-        let (voltage_raw, current_raw, power_inst, power_avg) = power_sampler.sample();
         let soc_temp = thermal.real_temp() as f64 / 1000.0;
         let cpu_temp = thermal.cpu_core_temp().unwrap_or(-1.0);
         let gpu_temp = thermal.gpu_temp().unwrap_or(-1.0);
         diag_tick = diag_tick.wrapping_add(1);
-        if diag_tick % 4 == 0 {
+        if diag_tick % 20 == 0 {
             last_top_processes = Command::new("sh").args(["-c", "top -b -n 1 -m 5 2>/dev/null | tail -5 | tr '\\n' ';'"]).output()
                 .ok().map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string()).unwrap_or_default();
             last_foreground = Command::new("dumpsys").args(["activity", "activities"]).output()
@@ -304,7 +333,7 @@ fn daemon_loop(
         }
         let zone_summary = thermal.zone_summary();
         logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=observe soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
+            "mode={} cpu0={}MHz cpu7={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
             active,
             cpu.read_freq(0) / 1000,
             cpu.read_freq(7) / 1000,
@@ -312,6 +341,7 @@ fn daemon_loop(
             cap_permille,
             if gpu_current > 0 { gpu_current / 1_000_000 } else { gpu.current_freq() / 1_000_000 },
             gpu_avg,
+            gpu_protection_level,
             soc_temp,
             cpu_temp,
             gpu_temp,

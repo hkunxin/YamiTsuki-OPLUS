@@ -101,21 +101,24 @@ impl CpuManager {
 
     /// PLG110 保守动态上限：仅采用 CPU 压力，不让未校准的 GED GPU 值触发提频。
     /// 返回实际频率上限系数的千分比，供诊断日志使用。
-    pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, temp_mc: i64) -> u32 {
+    pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, temp_mc: i64, power_watts: f64) -> u32 {
         let (base, max_with_load): (f64, f64) = match mode {
             "powersave" => (0.40, 0.50),
             "performance" => (0.85, 1.00),
             _ => (0.65, 0.85),
         };
-        let demand_boost: f64 = if cpu_load >= 85 { 0.20 }
-            else if cpu_load >= 65 { 0.10 }
-            else if cpu_load >= 45 { 0.05 }
+        let demand_boost: f64 = if cpu_load >= 85 && power_watts < 3.5 { 0.20 }
+            else if cpu_load >= 65 && power_watts < 3.0 { 0.10 }
+            else if cpu_load >= 45 && power_watts < 2.5 { 0.05 }
             else { 0.0 };
+        let power_limit: f64 = if power_watts >= 5.0 { 0.70 }
+            else if power_watts >= 4.0 { 0.85 }
+            else { 1.0 };
         let thermal_limit: f64 = if temp_mc >= 56_000 { 0.45 }
             else if temp_mc >= 52_000 { 0.65 }
             else if temp_mc >= 48_000 { 0.85 }
             else { 1.0 };
-        let factor = (base + demand_boost).min(max_with_load) * thermal_limit;
+        let factor = (base + demand_boost).min(max_with_load) * thermal_limit * power_limit;
 
         for core in 0..self.cores {
             let hw_max = self.read_max_freq(core);

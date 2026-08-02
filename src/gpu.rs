@@ -85,6 +85,27 @@ impl GpuManager {
         }
     }
 
+    fn write_devfreq_max(&self, target: u64) -> bool {
+        let Some(root) = &self.devfreq_root else { return false; };
+        fs::write(Path::new(root).join("max_freq"), target.to_string()).is_ok()
+    }
+
+    fn capped_target(&self, mode: &str, cap: Option<u64>) -> Option<u64> {
+        let base = self.target_freq(mode)?;
+        cap.map(|limit| base.min(limit)).or(Some(base))
+    }
+
+    pub fn apply_protection(&self, mode: &str, level: u8) -> bool {
+        if self.vendor != GpuVendor::DevfreqMali { return false; }
+        let cap = match level {
+            3 => Some(520_000_000),
+            2 => Some(650_000_000),
+            1 => Some(780_000_000),
+            _ => None,
+        };
+        self.capped_target(mode, cap).map(|target| self.write_devfreq_max(target)).unwrap_or(false)
+    }
+
     pub fn apply_mode(&self, mode: &str) {
         match self.vendor {
             GpuVendor::Adreno => {

@@ -2,17 +2,24 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 
 const LOG_FILE: &str = "/data/adb/modules/yamitsuki_oplus/yamitsuki.log";
-const MAX_LOG_LINES: usize = 1000;
+const MAX_LOG_BYTES: u64 = 256 * 1024;
 
 pub fn init() {
+    rotate_if_needed();
+}
+
+fn rotate_if_needed() {
     if let Ok(meta) = fs::metadata(LOG_FILE) {
-        if meta.len() > 256 * 1024 {
-            let _ = fs::rename(LOG_FILE, format!("{}.old", LOG_FILE));
+        if meta.len() >= MAX_LOG_BYTES {
+            let old = format!("{}.old", LOG_FILE);
+            let _ = fs::remove_file(&old);
+            let _ = fs::rename(LOG_FILE, old);
         }
     }
 }
 
 pub fn log(msg: &str) {
+    rotate_if_needed();
     let ts = now_formatted();
     let line = format!("{} {}\n", ts, msg);
 
