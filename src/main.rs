@@ -30,7 +30,7 @@ use doze::DozeManager;
 use io_sched::IoManager;
 use cgroups::CgroupManager;
 use fas::FasScheduler;
-use thermal::ThermalManager;
+use thermal::{ThermalManager, ThermalSnapshot};
 
 const MODULE_DIR: &str = "/data/adb/modules/yamitsuki_oplus";
 const MODE_FILE: &str = "/data/local/tmp/yamitsuki_mode";
@@ -256,10 +256,11 @@ fn daemon_loop(
         };
         let gpu_util_known = gpu_avg.is_some();
         let gpu_load = gpu_avg.unwrap_or(0);
-        let protection_temp = thermal.max_protection_temp();
+        let thermal_snapshot = thermal.snapshot();
+        let protection_temp = thermal_snapshot.protection_temp();
         let (voltage_raw, current_raw, power_inst, power_avg) = power_sampler.sample();
         let power_watts = power_inst.parse::<f64>().unwrap_or(0.0);
-        let gpu_temp_c = thermal.gpu_temp().unwrap_or(0.0);
+        let gpu_temp_c = thermal_snapshot.gpu_max.map(|value| value as f64 / 1000.0).unwrap_or(0.0);
         let screen_off = mode_mgr.is_screen_off();
         let gpu_idle = !screen_off && cpu_load <= 25 && power_watts < 1.5;
         let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= 85 && (gpu_temp_c >= 52.0 || power_watts >= 3.5);
@@ -364,9 +365,19 @@ fn daemon_loop(
             logger::log(&format!("scx 状态: {}", scx_status));
             last_scx_status = scx_status.clone();
         }
-        let soc_temp = thermal.real_temp() as f64 / 1000.0;
-        let cpu_temp = thermal.cpu_core_temp().unwrap_or(-1.0);
-        let gpu_temp = thermal.gpu_temp().unwrap_or(-1.0);
+        let soc_temp = thermal_snapshot.soc_max;
+        let cpu_temp = thermal_snapshot.cpu_core_max;
+        let gpu_temp = thermal_snapshot.gpu_max;
+        let shell_front = thermal_snapshot.shell_front;
+        let shell_frame = thermal_snapshot.shell_frame;
+        let shell_back = thermal_snapshot.shell_back;
+        let soc_temp_text = ThermalSnapshot::temp_celsius(soc_temp);
+        let cpu_temp_text = ThermalSnapshot::temp_celsius(cpu_temp);
+        let gpu_temp_text = ThermalSnapshot::temp_celsius(gpu_temp);
+        let shell_front_text = ThermalSnapshot::temp_celsius(shell_front);
+        let shell_frame_text = ThermalSnapshot::temp_celsius(shell_frame);
+        let shell_back_text = ThermalSnapshot::temp_celsius(shell_back);
+        let protection_temp_text = ThermalSnapshot::temp_celsius(thermal_snapshot.soc_max);
         diag_tick = diag_tick.wrapping_add(1);
         if diag_tick % 20 == 0 && !screen_off {
             last_top_processes = Command::new("sh").args(["-c", "top -b -n 1 -m 5 2>/dev/null | tail -5 | tr '\\n' ';'"]).output()
@@ -376,10 +387,10 @@ fn daemon_loop(
                     .find(|line| line.contains("mResumedActivity") || line.contains("topResumedActivity"))
                     .unwrap_or("").trim().to_string()).unwrap_or_default();
         }
-        let zone_summary = thermal.zone_summary();
+        let zone_summary = &thermal_snapshot.zone_summary;
         let last_core = cpu.last_core().unwrap_or(0);
         logger::log_debug(&format!(
-            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
+            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc_max={}C cpu_core_max={}C gpu_max={}C shell_front={}C shell_frame={}C shell_back={}C thermal_protect={}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}", 
             active,
             cpu.read_freq(0) / 1000,
             last_core,
@@ -390,10 +401,13 @@ fn daemon_loop(
             gpu_load,
             gpu_protection_level,
             gpu.max_freq() / 1_000_000,
-            soc_temp,
-            cpu_temp,
-            gpu_temp,
-            protection_temp as f64 / 1000.0,
+            soc_temp_text,
+            cpu_temp_text,
+            gpu_temp_text,
+            shell_front_text,
+            shell_frame_text,
+            shell_back_text,
+            protection_temp_text,
             read_sysfs(BATTERY_CAPACITY),
             voltage_raw,
             current_raw,

@@ -6,6 +6,27 @@ const CPU_PREFIX: &str = "cpu-";
 const GPU_PREFIX: &str = "gpu";
 const SHELL_TEMP: &str = "/proc/shell-temp";
 
+pub struct ThermalSnapshot {
+    pub soc_max: Option<i64>,
+    pub cpu_core_max: Option<i64>,
+    pub gpu_max: Option<i64>,
+    pub shell_front: Option<i64>,
+    pub shell_frame: Option<i64>,
+    pub shell_back: Option<i64>,
+    pub zone_summary: String,
+}
+
+impl ThermalSnapshot {
+    pub fn protection_temp(&self) -> i64 {
+        self.soc_max.unwrap_or(0)
+    }
+
+    pub fn temp_celsius(temp: Option<i64>) -> String {
+        temp.map(|value| format!("{:.1}", value as f64 / 1000.0))
+            .unwrap_or_else(|| "N/A".to_string())
+    }
+}
+
 pub struct ThermalManager {
     original: i64,
 }
@@ -67,33 +88,85 @@ impl ThermalManager {
 
     pub fn cpu_temp(&self) -> f64 { self.real_temp() as f64 / 1000.0 }
 
+    pub fn snapshot(&self) -> ThermalSnapshot {
+        let mut soc_max = None;
+        let mut cpu_core_max = None;
+        let mut gpu_max = None;
+        let mut shell_front = None;
+        let mut shell_frame = None;
+        let mut shell_back = None;
+        let mut summary = Vec::new();
+
+        for zone in Self::zone_names() {
+            let kind = Self::zone_type(&zone);
+            let temp = read_zone_temp(&zone);
+            match kind.as_str() {
+                SOC_MAX_TYPE => soc_max = temp,
+                "shell_front" => shell_front = temp,
+                "shell_frame" => shell_frame = temp,
+                "shell_back" => shell_back = temp,
+                _ if kind.starts_with(CPU_PREFIX) => {
+                    cpu_core_max = match (cpu_core_max, temp) {
+                        (Some(current), Some(value)) => Some(current.max(value)),
+                        (None, value) => value,
+                        (current, None) => current,
+                    };
+                }
+                _ if kind.starts_with(GPU_PREFIX) => {
+                    gpu_max = match (gpu_max, temp) {
+                        (Some(current), Some(value)) => Some(current.max(value)),
+                        (None, value) => value,
+                        (current, None) => current,
+                    };
+                }
+                _ => {}
+            }
+            if (kind == SOC_MAX_TYPE || kind.starts_with(CPU_PREFIX) || kind.starts_with(GPU_PREFIX)
+                || kind.starts_with("shell") || kind.starts_with("battery") || kind.starts_with("usb"))
+                && temp.is_some()
+            {
+                summary.push(format!("{}={}mC", kind, temp.unwrap_or_default()));
+            }
+        }
+
+        ThermalSnapshot {
+            soc_max,
+            cpu_core_max,
+            gpu_max,
+            shell_front,
+            shell_frame,
+            shell_back,
+            zone_summary: summary.join(","),
+        }
+    }
+
     pub fn max_protection_temp(&self) -> i64 {
-        let soc = Self::soc_temp().unwrap_or(0);
-        let cpu = self.cpu_core_temp().map(|v| (v * 1000.0) as i64).unwrap_or(0);
-        soc.max(cpu)
+        self.snapshot().protection_temp()
     }
 
     pub fn zone_summary(&self) -> String {
-        Self::zone_names().into_iter().filter_map(|zone| {
-            let kind = Self::zone_type(&zone);
-            if !(kind == SOC_MAX_TYPE || kind.starts_with(CPU_PREFIX) || kind.starts_with(GPU_PREFIX)
-                || kind.starts_with("shell") || kind.starts_with("battery") || kind.starts_with("usb")) { return None; }
-            let temp = read_zone_temp(&zone)?;
-            Some(format!("{}={}mC", kind, temp))
-        }).collect::<Vec<_>>().join(",")
+        self.snapshot().zone_summary
     }
 
     pub fn gpu_temp(&self) -> Option<f64> {
-        Self::zone_names().into_iter().filter_map(|zone| {
-            let kind = Self::zone_type(&zone);
-            (kind.starts_with(GPU_PREFIX)).then(|| read_zone_temp(&zone)).flatten()
-        }).max().map(|v| v as f64 / 1000.0)
+        self.snapshot().gpu_max.map(|value| value as f64 / 1000.0)
     }
 
     pub fn cpu_core_temp(&self) -> Option<f64> {
-        Self::zone_names().into_iter().filter_map(|zone| {
-            let kind = Self::zone_type(&zone);
-            (kind.starts_with(CPU_PREFIX)).then(|| read_zone_temp(&zone)).flatten()
-        }).max().map(|v| v as f64 / 1000.0)
+        self.snapshot().cpu_core_max.map(|value| value as f64 / 1000.0)
     }
+
+    pub fn soc_temp_c(&self) -> Option<f64> {
+        self.snapshot().soc_max.map(|value| value as f64 / 1000.0)
+    }
+
+    pub fn shell_temps_c(&self) -> (Option<f64>, Option<f64>, Option<f64>) {
+        let snapshot = self.snapshot();
+        (
+            snapshot.shell_front.map(|value| value as f64 / 1000.0),
+            snapshot.shell_frame.map(|value| value as f64 / 1000.0),
+            snapshot.shell_back.map(|value| value as f64 / 1000.0),
+        )
+    }
+
 }
