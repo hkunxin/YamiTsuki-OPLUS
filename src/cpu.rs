@@ -56,7 +56,7 @@ impl CpuManager {
                 .ok()
                 .into_iter()
                 .flatten()
-                .filter_map(|entry| entry.ok().file_name().into_string().ok())
+                .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
                 .filter_map(|name| name.strip_prefix("cpu").and_then(|value| value.parse::<u32>().ok()))
                 .collect();
             possible.sort_unstable();
