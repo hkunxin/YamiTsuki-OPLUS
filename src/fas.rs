@@ -17,9 +17,8 @@ fn numbers(raw: &str) -> Vec<u64> {
 fn ged_util(raw: &str) -> Option<u32> {
     let values = numbers(raw);
     if values.len() >= 3 {
-        // PLG110 reports three bucket values; use their weighted total.
         let total = values.iter().take(3).sum::<u64>();
-        if total > 0 {
+        if total > 0 && values.iter().take(3).any(|value| *value > 100) {
             return Some(((values[2].saturating_mul(100) / total).min(100)) as u32);
         }
     }

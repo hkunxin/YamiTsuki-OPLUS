@@ -92,7 +92,10 @@ impl GpuManager {
 
     fn capped_target(&self, mode: &str, cap: Option<u64>) -> Option<u64> {
         let base = self.target_freq(mode)?;
-        cap.map(|limit| base.min(limit)).or(Some(base))
+        let Some(limit) = cap else { return Some(base); };
+        self.available_freqs.iter().rev().copied()
+            .find(|freq| *freq <= limit)
+            .or(Some(base))
     }
 
     pub fn apply_protection(&self, mode: &str, level: u8) -> bool {
@@ -104,6 +107,13 @@ impl GpuManager {
             _ => None,
         };
         self.capped_target(mode, cap).map(|target| self.write_devfreq_max(target)).unwrap_or(false)
+    }
+
+    pub fn max_freq(&self) -> u64 {
+        self.devfreq_root.as_ref()
+            .and_then(|root| fs::read_to_string(Path::new(root).join("max_freq")).ok())
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .unwrap_or(0)
     }
 
     pub fn apply_mode(&self, mode: &str) {
