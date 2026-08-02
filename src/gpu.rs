@@ -139,5 +139,4 @@ impl GpuManager {
 }
 
 pub(crate) const GED_UTIL_PATH: &str = GED_UTIL;
-pub(crate) const GED_LOADING_PATH: &str = GED_SUM_LOADING;
 pub(crate) const GED_CURRENT_FREQ_PATH: &str = GED_CURRENT_FREQ;

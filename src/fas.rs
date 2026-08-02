@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::gpu::{GED_CURRENT_FREQ_PATH, GED_LOADING_PATH, GED_UTIL_PATH};
+use crate::gpu::{GED_CURRENT_FREQ_PATH, GED_UTIL_PATH};
 
 const GPU_BUSY: &str = "/sys/class/kgsl/kgsl-3d0/gpubusy";
 const GPU_UTIL: &str = "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage";
@@ -17,12 +17,13 @@ fn numbers(raw: &str) -> Vec<u64> {
 fn ged_util(raw: &str) -> Option<u32> {
     let values = numbers(raw);
     if values.len() >= 3 {
-        let third = values[2];
-        let total = values.iter().take(3).sum::<u64>();
-        if total > 100 {
-            return Some((third.saturating_mul(100) / total).min(100) as u32);
+        // 实测 gpu_utilization 三字段语义：field0=GPU busy%，field1 恒为 0，field2=GPU idle%。
+        // 仅当 busy+idle≈100 时才采用，避免把累计计数器误当成百分比。
+        let busy_idle = values[0].saturating_add(values[2]);
+        if values[0] <= 100 && (95..=105).contains(&busy_idle) {
+            return Some(values[0] as u32);
         }
-        return Some(third.min(100) as u32);
+        return None;
     }
     values.first().copied().filter(|value| *value <= 100).map(|value| value as u32)
 }
@@ -32,15 +33,22 @@ mod tests {
     use super::ged_util;
 
     #[test]
-    fn parses_ged_utilization_field() {
-        assert_eq!(ged_util("30 0 70"), Some(70));
-        assert_eq!(ged_util("0 0 100"), Some(100));
+    fn parses_ged_busy_field() {
+        assert_eq!(ged_util("0 0 100"), Some(0));   // 息屏静止：idle=100
+        assert_eq!(ged_util("73 0 27"), Some(73));  // 桌面滑动：busy=73
+        assert_eq!(ged_util("42 0 58"), Some(42));  // 相机预览：busy=42
+        assert_eq!(ged_util("81 0 19"), Some(81));  // 游戏负载：busy=81
     }
 
     #[test]
-    fn parses_ged_accumulated_counters() {
-        assert_eq!(ged_util("300 200 500"), Some(50));
-        assert_eq!(ged_util("0 0 0"), Some(0));
+    fn parses_single_value_percentage() {
+        assert_eq!(ged_util("35"), Some(35));
+        assert_eq!(ged_util("0"), Some(0));
+    }
+
+    #[test]
+    fn rejects_counter_format() {
+        assert_eq!(ged_util("300 200 500"), None); // 非 busy/idle 格式不猜测
     }
 }
 
@@ -50,12 +58,6 @@ impl FasScheduler {
     pub fn gpu_util(&self) -> Option<u32> {
         if let Ok(raw) = fs::read_to_string(GED_UTIL_PATH) {
             if let Some(value) = ged_util(&raw) { return Some(value); }
-        }
-        if let Ok(raw) = fs::read_to_string(GED_LOADING_PATH) {
-            let values = numbers(&raw);
-            if values.len() >= 2 && values[1] > 0 {
-                return Some(((values[0].saturating_mul(100) / values[1]).min(100)) as u32);
-            }
         }
         if let Ok(raw) = fs::read_to_string(GPU_BUSY) {
             let values = numbers(&raw);
