@@ -89,12 +89,12 @@ impl ThermalManager {
     pub fn cpu_temp(&self) -> f64 { self.real_temp() as f64 / 1000.0 }
 
     pub fn snapshot(&self) -> ThermalSnapshot {
-        let mut soc_max = None;
-        let mut cpu_core_max = None;
-        let mut gpu_max = None;
-        let mut shell_front = None;
-        let mut shell_frame = None;
-        let mut shell_back = None;
+        let mut soc_max: Option<i64> = None;
+        let mut cpu_core_max: Option<i64> = None;
+        let mut gpu_max: Option<i64> = None;
+        let mut shell_front: Option<i64> = None;
+        let mut shell_frame: Option<i64> = None;
+        let mut shell_back: Option<i64> = None;
         let mut summary = Vec::new();
 
         for zone in Self::zone_names() {
