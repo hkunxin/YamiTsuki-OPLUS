@@ -88,7 +88,7 @@ impl CpuManager {
     /// 只降低或恢复 scaling_max_freq，不抬高 scaling_min_freq。
     pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, gpu_load: u32, temp_mc: i64) {
         let demand = cpu_load.max(gpu_load);
-        let base = match mode {
+        let base: f64 = match mode {
             "powersave" => 0.40,
             "performance" => 1.00,
             _ => 0.70,

@@ -75,7 +75,7 @@ fn battery_power_watts() -> String {
 fn cmd_loop(
     running: Arc<AtomicBool>,
     cpu: Arc<CpuManager>,
-    gpu: Arc<GpuManager>,
+    _gpu: Arc<GpuManager>,
     mode_mgr: Arc<ModeManager>,
 ) {
     while running.load(Ordering::Relaxed) {
