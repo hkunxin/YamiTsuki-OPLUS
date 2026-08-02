@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::process::Command;
 
 use cpu::CpuManager;
 use gpu::GpuManager;
@@ -38,7 +39,6 @@ const GOVERNOR_INFO_FILE: &str = "/data/local/tmp/governor_info";
 const GOVERNOR_SELECTED_FILE: &str = "/data/adb/modules/yamitsuki_oplus/governor_selected";
 const SPOOF_RESULT_FILE: &str = "/data/adb/modules/yamitsuki_oplus/device_spoof_result.txt";
 const GAME_LIST: &str = "/data/adb/modules/yamitsuki_oplus/game_list.txt";
-
 const BATTERY_CAPACITY: &str = "/sys/class/power_supply/battery/capacity";
 const BATTERY_VOLTAGE: &str = "/sys/class/power_supply/battery/voltage_now";
 const BATTERY_CURRENT: &str = "/sys/class/power_supply/battery/current_now";
@@ -56,7 +56,13 @@ struct PowerSampler {
 }
 
 impl PowerSampler {
-    fn new() -> Self { Self { watts: [0.0; 5], index: 0, count: 0 } }
+    fn new() -> Self {
+        Self {
+            watts: [0.0; 5],
+            index: 0,
+            count: 0,
+        }
+    }
 
     /// 返回原始电压、电流、瞬时计算值和 5 次移动均值。PLG110 使用 mV/mA。
     fn sample(&mut self) -> (String, String, String, String) {
@@ -202,6 +208,9 @@ fn daemon_loop(
     let mut was_dozing = false;
     let mut last_scx_status = String::new();
     let mut power_sampler = PowerSampler::new();
+    let mut diag_tick: u32 = 0;
+    let mut last_foreground = String::new();
+    let mut last_top_processes = String::new();
 
     loop {
         let active = mode_mgr.active_mode();
@@ -284,8 +293,18 @@ fn daemon_loop(
         let soc_temp = thermal.real_temp() as f64 / 1000.0;
         let cpu_temp = thermal.cpu_core_temp().unwrap_or(-1.0);
         let gpu_temp = thermal.gpu_temp().unwrap_or(-1.0);
+        diag_tick = diag_tick.wrapping_add(1);
+        if diag_tick % 4 == 0 {
+            last_top_processes = Command::new("sh").args(["-c", "top -b -n 1 -m 5 2>/dev/null | tail -5 | tr '\\n' ';'"]).output()
+                .ok().map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string()).unwrap_or_default();
+            last_foreground = Command::new("dumpsys").args(["activity", "activities"]).output()
+                .ok().map(|out| String::from_utf8_lossy(&out.stdout).lines()
+                    .find(|line| line.contains("mResumedActivity") || line.contains("topResumedActivity"))
+                    .unwrap_or("").trim().to_string()).unwrap_or_default();
+        }
+        let zone_summary = thermal.zone_summary();
         logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=observe soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={}",
+            "mode={} cpu0={}MHz cpu7={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=observe soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
             active,
             cpu.read_freq(0) / 1000,
             cpu.read_freq(7) / 1000,
@@ -306,6 +325,9 @@ fn daemon_loop(
             read_sysfs(BATTERY_POWER_AVG),
             io.current(),
             vm.current_swappiness(),
+            last_foreground,
+            zone_summary,
+            last_top_processes,
         ));
 
         thread::sleep(Duration::from_millis(1500));

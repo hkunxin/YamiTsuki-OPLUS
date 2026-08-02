@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Mutex;
 
 const CPU_BASE: &str = "/sys/devices/system/cpu";
 const CPU_MAX: u32 = 8;
@@ -6,6 +7,7 @@ const CPU_MAX: u32 = 8;
 pub struct CpuManager {
     cores: u32,
     little_max: usize,
+    stat_prev: Mutex<Option<(u64, u64)>>,
     pub big_cores: Vec<u32>,
     pub little_cores: Vec<u32>,
 }
@@ -37,19 +39,32 @@ impl CpuManager {
         CpuManager {
             cores: max_core,
             little_max,
+            stat_prev: Mutex::new(None),
             big_cores: big,
             little_cores: little,
         }
     }
 
-    /// Android 上保持依赖最少：使用 loadavg 估算全局 CPU 压力。
-    /// 该值不是每核精确利用率，但足够用于频率上限的迟滞式调节。
+    /// 通过两次 /proc/stat 差值计算真实 CPU 利用率，避免把 loadavg 当成百分比。
+    /// 首次采样或计数器异常时返回 0，避免省电模式误放宽频率上限。
     pub fn load_percent(&self) -> u32 {
-        let load = fs::read_to_string("/proc/loadavg")
-            .ok()
-            .and_then(|raw| raw.split_whitespace().next()?.parse::<f64>().ok())
-            .unwrap_or(0.0);
-        ((load / self.cores.max(1) as f64) * 100.0).round().clamp(0.0, 100.0) as u32
+        let line = fs::read_to_string("/proc/stat").ok()
+            .and_then(|raw| raw.lines().find(|line| line.starts_with("cpu ")).map(str::to_string));
+        let values: Vec<u64> = line.unwrap_or_default().split_whitespace().skip(1)
+            .filter_map(|v| v.parse().ok()).collect();
+        if values.len() < 4 { return 0; }
+        let idle = values[3].saturating_add(*values.get(4).unwrap_or(&0));
+        let total = values.iter().fold(0u64, |sum, value| sum.saturating_add(*value));
+        let mut previous = self.stat_prev.lock().unwrap();
+        let result = previous.map(|(old_total, old_idle)| {
+            let total_delta = total.saturating_sub(old_total);
+            let idle_delta = idle.saturating_sub(old_idle);
+            if total_delta == 0 { 0 } else {
+                ((total_delta.saturating_sub(idle_delta) * 100) / total_delta).min(100) as u32
+            }
+        }).unwrap_or(0);
+        *previous = Some((total, idle));
+        result
     }
 
     pub fn read_freq(&self, core: u32) -> u64 {

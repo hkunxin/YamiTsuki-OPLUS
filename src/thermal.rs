@@ -73,6 +73,16 @@ impl ThermalManager {
         soc.max(cpu)
     }
 
+    pub fn zone_summary(&self) -> String {
+        Self::zone_names().into_iter().filter_map(|zone| {
+            let kind = Self::zone_type(&zone);
+            if !(kind == SOC_MAX_TYPE || kind.starts_with(CPU_PREFIX) || kind.starts_with(GPU_PREFIX)
+                || kind.starts_with("shell") || kind.starts_with("battery") || kind.starts_with("usb")) { return None; }
+            let temp = read_zone_temp(&zone)?;
+            Some(format!("{}={}mC", kind, temp))
+        }).collect::<Vec<_>>().join(",")
+    }
+
     pub fn gpu_temp(&self) -> Option<f64> {
         Self::zone_names().into_iter().filter_map(|zone| {
             let kind = Self::zone_type(&zone);
