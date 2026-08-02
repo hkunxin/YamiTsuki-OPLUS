@@ -12,7 +12,12 @@ impl ThreadOptimizer {
         self.optimize_game_with_policy(pkg, true, true)
     }
 
-    pub fn optimize_game_with_policy(&self, pkg: &str, _allow_affinity: bool, _allow_realtime: bool) -> usize {
+    pub fn optimize_game_with_policy(
+        &self,
+        pkg: &str,
+        _allow_affinity: bool,
+        _allow_realtime: bool,
+    ) -> usize {
         let _ = self.get_threads(pkg);
         0
     }
@@ -41,7 +46,10 @@ impl ThreadOptimizer {
     fn get_pids(&self, pkg: &str) -> Vec<String> {
         if let Ok(output) = Command::new("pidof").arg(pkg).output() {
             let raw = String::from_utf8_lossy(&output.stdout);
-            raw.trim().split_whitespace().map(|s| s.to_string()).collect()
+            raw.trim()
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect()
         } else {
             vec![]
         }
