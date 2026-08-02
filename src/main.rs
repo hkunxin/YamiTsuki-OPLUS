@@ -205,6 +205,8 @@ fn daemon_loop(
     cgroup: Arc<CgroupManager>,
 ) {
     let mut prev_mode = String::new();
+    let mut pending_mode = String::new();
+    let mut pending_mode_samples = 0u8;
     let mut was_dozing = false;
     let mut last_scx_status = String::new();
     let mut power_sampler = PowerSampler::new();
@@ -214,18 +216,31 @@ fn daemon_loop(
     let mut gpu_protection_level: u8 = 0;
     let mut gpu_high_ticks: u8 = 0;
     let mut gpu_clear_ticks: u8 = 0;
+    let mut thread_opt_tick: u8 = 0;
+    let mut thread_degraded = false;
+    let mut thread_hot_ticks: u8 = 0;
+    let mut thread_cool_ticks: u8 = 0;
 
     loop {
-        let active = mode_mgr.active_mode();
-
-        // ── Mode transition handling ──
-        let mode_changed = active != prev_mode;
-        if mode_changed {
-            logger::log(&format!("模式切换: {} -> {}", prev_mode, active));
-            prev_mode = active.clone();
+        let sampled_mode = mode_mgr.active_mode();
+        if sampled_mode == pending_mode {
+            pending_mode_samples = pending_mode_samples.saturating_add(1);
+        } else {
+            pending_mode = sampled_mode;
+            pending_mode_samples = 1;
         }
-
+        let initializing = prev_mode.is_empty();
+        let mode_changed = pending_mode_samples >= 2 && pending_mode != prev_mode;
+        let active = if mode_changed || initializing { pending_mode.clone() } else { prev_mode.clone() };
         if mode_changed {
+            let reason = mode_mgr.decision_reason();
+            logger::log(&format!("模式切换: {} -> {}，原因: {}", prev_mode, active, reason));
+        }
+        if mode_changed || initializing {
+            if !mode_changed {
+                logger::log(&format!("初始模式: {}，原因: {}", active, mode_mgr.decision_reason()));
+            }
+            prev_mode = active.clone();
             cpu.apply_mode(&active);
             gpu.apply_mode(&active);
         }
@@ -268,12 +283,33 @@ fn daemon_loop(
         }
         let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, protection_temp, power_watts);
 
-        // ── Thread optimization (game mode only) ──
-        if active == "performance" {
+        let valid_protection_temp = protection_temp > 0;
+        let high_thread_condition = valid_protection_temp && (protection_temp >= 52_000 || power_watts >= 4.5);
+        let cool_thread_condition = valid_protection_temp && protection_temp <= 48_000 && power_watts < 3.5;
+        if high_thread_condition {
+            thread_hot_ticks = thread_hot_ticks.saturating_add(1);
+            thread_cool_ticks = 0;
+        } else if cool_thread_condition {
+            thread_cool_ticks = thread_cool_ticks.saturating_add(1);
+            thread_hot_ticks = 0;
+        } else {
+            thread_hot_ticks = 0;
+            thread_cool_ticks = 0;
+        }
+        if !thread_degraded && thread_hot_ticks >= 2 {
+            thread_degraded = true;
+            logger::log(&format!("线程优化进入降级: temp={:.1}C power={:.2}W", protection_temp as f64 / 1000.0, power_watts));
+        } else if thread_degraded && thread_cool_ticks >= 4 {
+            thread_degraded = false;
+            logger::log(&format!("线程优化恢复: temp={:.1}C power={:.2}W", protection_temp as f64 / 1000.0, power_watts));
+        }
+
+        thread_opt_tick = thread_opt_tick.wrapping_add(1);
+        if active == "performance" && (mode_changed || thread_opt_tick % 10 == 0) {
             let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
             for pkg in game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()) {
                 let pkg = if let Some(idx) = pkg.find('#') { &pkg[..idx] } else { pkg };
-                thread_opt.optimize_game(pkg);
+                thread_opt.optimize_game_with_policy(pkg, !thread_degraded, !thread_degraded);
                 cgroup.assign_game(pkg);
             }
         } else {
@@ -296,7 +332,6 @@ fn daemon_loop(
         }
 
         // ── Doze ──
-        let screen_off = mode_mgr.is_screen_off();
         {
             let mut d = doze_mgr.lock().unwrap();
             if screen_off && !was_dozing {
@@ -334,11 +369,13 @@ fn daemon_loop(
                     .unwrap_or("").trim().to_string()).unwrap_or_default();
         }
         let zone_summary = thermal.zone_summary();
-        logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
+        let last_core = cpu.last_core().unwrap_or(0);
+        logger::log_debug(&format!(
+            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
             active,
             cpu.read_freq(0) / 1000,
-            cpu.read_freq(7) / 1000,
+            last_core,
+            cpu.read_freq(last_core) / 1000,
             cpu_load,
             cap_permille,
             if gpu_current > 0 { gpu_current / 1_000_000 } else { gpu.current_freq() / 1_000_000 },
@@ -384,10 +421,12 @@ fn main() {
     let cgroup = Arc::new(CgroupManager::new(&cpu.big_cores, &cpu.little_cores));
 
     logger::log(&format!(
-        "CPU: {} cores ({} big + {} little) | GPU: {} | {:?}",
-        cpu.big_cores.len() + cpu.little_cores.len(),
-        cpu.big_cores.len(),
+        "CPU: {} cores ({} little + {} middle + {} big + {} prime) | GPU: {} | {:?}",
+        cpu.little_cores.len() + cpu.middle_cores.len() + cpu.big_cores.len(),
         cpu.little_cores.len(),
+        cpu.middle_cores.len(),
+        cpu.big_cores.len(),
+        cpu.prime_cores.len(),
         gpu.vendor_name(),
         cpu.available_governors(),
     ));

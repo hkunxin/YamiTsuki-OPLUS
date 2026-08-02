@@ -15,6 +15,10 @@ ENABLED_FEATURES=""
 
 if [ "$IS_UPDATE" -eq 1 ]; then
     ui_print "📂 读取旧配置..."
+    if [ -f "$OLD_MODULE/log_config.conf" ]; then
+        cp -f "$OLD_MODULE/log_config.conf" "$MODPATH/log_config.conf" 2>/dev/null || true
+        ui_print "  ✅ 沿用: log_config.conf"
+    fi
     for f in $FEATURES; do
         if [ -f "$OLD_MODULE/$f" ]; then
             ENABLED_FEATURES="$ENABLED_FEATURES $f"

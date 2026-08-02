@@ -13,10 +13,43 @@ impl ModeManager {
 
     pub fn active_mode(&self) -> String {
         let mode = fs::read_to_string(MODE_FILE).unwrap_or_else(|_| "auto".to_string()).trim().to_string();
-        if mode != "auto" { return mode; }
-        if self.is_screen_off() || self.battery_level() < 15 { return "powersave".to_string(); }
-        if self.is_game_running() && self.battery_level() > 25 { return "performance".to_string(); }
-        "balance".to_string()
+        match mode.as_str() {
+            "powersave" | "balance" | "performance" => mode,
+            "auto" => self.auto_mode(),
+            _ => "balance".to_string(),
+        }
+    }
+
+    pub fn decision_reason(&self) -> String {
+        let mode = fs::read_to_string(MODE_FILE).unwrap_or_else(|_| "auto".to_string()).trim().to_string();
+        match mode.as_str() {
+            "powersave" | "balance" | "performance" => format!("显式模式: {}", mode),
+            "auto" => self.auto_decision().1,
+            _ => format!("未知模式 {:?}，回退 balance", mode),
+        }
+    }
+
+    fn auto_mode(&self) -> String { self.auto_decision().0 }
+
+    fn auto_decision(&self) -> (String, String) {
+        let screen_off = self.is_screen_off();
+        let battery = self.battery_level();
+        let charging = self.is_charging();
+        if screen_off {
+            ("powersave".to_string(), "自动: 屏幕关闭".to_string())
+        } else if battery < 15 && !charging {
+            ("powersave".to_string(), format!("自动: 电量低于 15% 且未充电 ({}%)", battery))
+        } else if self.is_game_running() && (battery > 25 || charging) {
+            ("performance".to_string(), if charging {
+                format!("自动: 游戏运行且正在充电 ({}%)", battery)
+            } else {
+                format!("自动: 游戏运行且电量充足 ({}%)", battery)
+            })
+        } else if charging {
+            ("balance".to_string(), format!("自动: 正在充电 ({}%)", battery))
+        } else {
+            ("balance".to_string(), format!("自动: 常规状态 ({}%)", battery))
+        }
     }
 
     fn battery_level(&self) -> u32 { fs::read_to_string(BATTERY_CAPACITY).unwrap_or_default().trim().parse().unwrap_or(100) }

@@ -2,46 +2,117 @@ use std::fs;
 use std::sync::Mutex;
 
 const CPU_BASE: &str = "/sys/devices/system/cpu";
-const CPU_MAX: u32 = 8;
+const CPU_POSSIBLE: &str = "/sys/devices/system/cpu/possible";
 
 pub struct CpuManager {
-    cores: u32,
+    cores: Vec<u32>,
     little_max: usize,
     stat_prev: Mutex<Option<(u64, u64)>>,
     pub big_cores: Vec<u32>,
     pub little_cores: Vec<u32>,
+    pub middle_cores: Vec<u32>,
+    pub prime_cores: Vec<u32>,
+}
+
+fn parse_cpu_range(raw: &str) -> Vec<u32> {
+    let mut cores = Vec::new();
+    for part in raw.trim().split(',') {
+        let mut bounds = part.trim().split('-');
+        let Some(start) = bounds.next().and_then(|value| value.parse::<u32>().ok()) else { continue; };
+        let end = bounds.next().and_then(|value| value.parse::<u32>().ok()).unwrap_or(start);
+        for core in start..=end { cores.push(core); }
+    }
+    cores.sort_unstable();
+    cores.dedup();
+    cores
+}
+
+fn read_cpu_package(core: u32) -> Option<u32> {
+    fs::read_to_string(format!("{}/cpu{}/topology/physical_package_id", CPU_BASE, core))
+        .ok()?.trim().parse::<u32>().ok()
+}
+
+fn read_cpu_capacity(core: u32) -> Option<u64> {
+    let candidates = [
+        format!("{}/cpu{}/cpu_capacity", CPU_BASE, core),
+        format!("{}/cpu{}/cpu_capacity_orig", CPU_BASE, core),
+        format!("{}/cpu{}/capacity", CPU_BASE, core),
+        format!("{}/cpu{}/topology/cpu_capacity", CPU_BASE, core),
+    ];
+    candidates.into_iter().find_map(|path| {
+        fs::read_to_string(path).ok()?.trim().parse::<u64>().ok().filter(|value| *value > 0)
+    })
 }
 
 impl CpuManager {
     pub fn new() -> Self {
         let mut big = vec![];
         let mut little = vec![];
-        let mut max_core = 0u32;
+        let mut middle = vec![];
+        let mut prime = vec![];
+        let mut possible = parse_cpu_range(&fs::read_to_string(CPU_POSSIBLE).unwrap_or_default());
+        if possible.is_empty() {
+            possible = fs::read_dir(CPU_BASE)
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.ok().file_name().into_string().ok())
+                .filter_map(|name| name.strip_prefix("cpu").and_then(|value| value.parse::<u32>().ok()))
+                .collect();
+            possible.sort_unstable();
+        }
+        let mut cores = Vec::new();
+        let mut capacities = Vec::new();
 
-        for i in 0..CPU_MAX {
+        for i in possible {
             let path = format!("{}/cpu{}/cpufreq/cpuinfo_max_freq", CPU_BASE, i);
             if let Ok(freq_str) = fs::read_to_string(&path) {
-                max_core = i + 1;
+                cores.push(i);
                 let max_freq: u64 = freq_str.trim().parse().unwrap_or(0);
-                // OPLUS: big cores typically > 2GHz
-                if max_freq > 2_000_000 {
-                    big.push(i);
+                capacities.push((i, read_cpu_package(i), read_cpu_capacity(i), max_freq));
+            }
+        }
+
+        let capacity_values: Vec<u64> = capacities.iter().filter_map(|(_, _, capacity, _)| *capacity).collect();
+        if !capacity_values.is_empty() {
+            let min_capacity = *capacity_values.iter().min().unwrap_or(&0);
+            let max_capacity = *capacity_values.iter().max().unwrap_or(&0);
+            let middle_capacity = capacity_values.iter()
+                .copied()
+                .filter(|value| *value > min_capacity && *value < max_capacity)
+                .min();
+            for (core, _package, capacity, _max_freq) in capacities {
+                let value = capacity.unwrap_or(min_capacity);
+                if value == max_capacity {
+                    prime.push(core);
+                    big.push(core);
+                } else if middle_capacity.is_some_and(|middle_value| value == middle_value) {
+                    middle.push(core);
                 } else {
-                    little.push(i);
+                    little.push(core);
                 }
-            } else {
-                break;
+            }
+        } else {
+            for (core, _package, _capacity, max_freq) in capacities {
+                if max_freq > 2_000_000 {
+                    prime.push(core);
+                    big.push(core);
+                } else {
+                    little.push(core);
+                }
             }
         }
 
         let little_max = little.len();
 
         CpuManager {
-            cores: max_core,
+            cores,
             little_max,
             stat_prev: Mutex::new(None),
             big_cores: big,
             little_cores: little,
+            middle_cores: middle,
+            prime_cores: prime,
         }
     }
 
@@ -65,6 +136,10 @@ impl CpuManager {
         }).unwrap_or(0);
         *previous = Some((total, idle));
         result
+    }
+
+    pub fn last_core(&self) -> Option<u32> {
+        self.cores.last().copied()
     }
 
     pub fn read_freq(&self, core: u32) -> u64 {
@@ -120,12 +195,10 @@ impl CpuManager {
             else { 1.0 };
         let factor = (base + demand_boost).min(max_with_load) * thermal_limit * power_limit;
 
-        for core in 0..self.cores {
-            let hw_max = self.read_max_freq(core);
-            let min = self.read_min_freq(core);
-            if hw_max == 0 { continue; }
-            let target = ((hw_max as f64 * factor) as u64).max(min);
-            let _ = self.set_scaling_max(core, target);
+        for (policy, related) in self.policy_groups() {
+            if let Some(&core) = related.first() {
+                self.write_policy_max(&policy, core, factor);
+            }
         }
         (factor * 1000.0).round() as u32
     }
@@ -140,7 +213,8 @@ impl CpuManager {
     }
 
     pub fn available_governors(&self) -> Vec<String> {
-        let path = format!("{}/cpu0/cpufreq/scaling_available_governors", CPU_BASE);
+        let Some(&core) = self.cores.first() else { return Vec::new(); };
+        let path = format!("{}/cpu{}/cpufreq/scaling_available_governors", CPU_BASE, core);
         fs::read_to_string(&path)
             .unwrap_or_default()
             .trim()
@@ -150,17 +224,58 @@ impl CpuManager {
     }
 
     pub fn current_governor(&self) -> String {
-        let path = format!("{}/cpu0/cpufreq/scaling_governor", CPU_BASE);
+        let Some(&core) = self.cores.first() else { return String::new(); };
+        let path = format!("{}/cpu{}/cpufreq/scaling_governor", CPU_BASE, core);
         fs::read_to_string(&path)
             .unwrap_or_default()
             .trim()
             .to_string()
     }
 
+    fn policy_groups(&self) -> Vec<(String, Vec<u32>)> {
+        let policy_base = format!("{}/cpufreq", CPU_BASE);
+        let mut groups = Vec::new();
+        if let Ok(entries) = fs::read_dir(&policy_base) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !matches!(name.as_str(), "policy0" | "policy4" | "policy7") {
+                    continue;
+                }
+                let path = entry.path();
+                let related = fs::read_to_string(path.join("related_cpus"))
+                    .map(|raw| parse_cpu_range(&raw))
+                    .unwrap_or_default();
+                if !related.is_empty() {
+                    groups.push((path.to_string_lossy().to_string(), related));
+                }
+            }
+        }
+        groups
+    }
+
+    fn write_policy_max(&self, policy: &str, core: u32, factor: f64) {
+        let max_path = format!("{}/cpuinfo_max_freq", policy);
+        let min_path = format!("{}/cpuinfo_min_freq", policy);
+        let target_path = format!("{}/scaling_max_freq", policy);
+        let max = fs::read_to_string(&max_path)
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or_else(|| self.read_max_freq(core));
+        let min = fs::read_to_string(&min_path)
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or_else(|| self.read_min_freq(core));
+        if max > 0 {
+            let _ = fs::write(target_path, ((max as f64 * factor) as u64).max(min).to_string());
+        }
+    }
+
     pub fn set_all_governors(&self, gov: &str) {
-        for i in 0..self.cores {
-            let path = format!("{}/cpu{}/cpufreq/scaling_governor", CPU_BASE, i);
-            let _ = fs::write(&path, gov);
+        for (policy, _) in self.policy_groups() {
+            let path = format!("{}/scaling_governor", policy);
+            if std::path::Path::new(&path).exists() {
+                let _ = fs::write(path, gov);
+            }
         }
     }
 
@@ -186,41 +301,23 @@ impl CpuManager {
         };
         self.set_all_governors(&gov);
 
-        match mode {
-            "powersave" => {
-                // Little cores @ 40%, big cores @ 50%
-                for &c in &self.little_cores {
-                    let max = self.read_max_freq(c);
-                    let target = (max as f64 * 0.4) as u64;
-                    self.write_max_freq(c, target.max(self.read_min_freq(c)));
-                }
-                for &c in &self.big_cores {
-                    let max = self.read_max_freq(c);
-                    let target = (max as f64 * 0.5) as u64;
-                    self.write_max_freq(c, target.max(self.read_min_freq(c)));
-                }
+        let factors = match mode {
+            "powersave" => (0.4, 0.45, 0.5),
+            "balance" => (0.8, 0.75, 0.7),
+            "performance" => (1.0, 1.0, 1.0),
+            _ => return,
+        };
+        for (policy, related) in self.policy_groups() {
+            let factor = if related.iter().any(|core| self.little_cores.contains(core)) {
+                factors.0
+            } else if related.iter().any(|core| self.middle_cores.contains(core)) {
+                factors.1
+            } else {
+                factors.2
+            };
+            if let Some(&core) = related.first() {
+                self.write_policy_max(&policy, core, factor);
             }
-            "balance" => {
-                // Little cores @ 80%, big cores @ 70%
-                for &c in &self.little_cores {
-                    let max = self.read_max_freq(c);
-                    let target = (max as f64 * 0.8) as u64;
-                    self.write_max_freq(c, target.max(self.read_min_freq(c)));
-                }
-                for &c in &self.big_cores {
-                    let max = self.read_max_freq(c);
-                    let target = (max as f64 * 0.7) as u64;
-                    self.write_max_freq(c, target.max(self.read_min_freq(c)));
-                }
-            }
-            "performance" => {
-                // All cores @ 100%
-                for i in 0..self.cores {
-                    let max = self.read_max_freq(i);
-                    self.write_max_freq(i, max);
-                }
-            }
-            _ => {}
         }
     }
 }

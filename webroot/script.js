@@ -60,6 +60,7 @@ var MODE_FILE = "/data/local/tmp/yamitsuki_mode";
 var CMD_FILE = "/data/local/tmp/yamitsuki_cmd";
 var GAME_LIST = MODULE_DIR + "/game_list.txt";
 var LOG_FILE = MODULE_DIR + "/yamitsuki.log";
+var LOG_CONFIG = MODULE_DIR + "/log_config.conf";
 
 var FEATURE_KEYS = {
     'charge_boost': 'yamitsuki_charge_boost',
@@ -81,6 +82,46 @@ var FEATURE_CMDS = {
     'disable_usb': { enable: 'disable_usb:enable', disable: 'disable_usb:disable' }
 };
 
+async function loadLogConfig() {
+    var res = await execCommand("cat " + LOG_CONFIG + " 2>/dev/null");
+    var level = "debug";
+    var offset = "8";
+    res.stdout.split(/\r?\n/).forEach(function(line) {
+        var pair = line.split("=");
+        if (pair.length < 2) return;
+        if (pair[0].trim() === "LOG_LEVEL") level = pair[1].trim();
+        if (pair[0].trim() === "TIMEZONE_OFFSET") offset = pair[1].trim();
+    });
+    var levelEl = document.getElementById("log-level");
+    var offsetEl = document.getElementById("timezone-offset");
+    if (levelEl) levelEl.value = ["debug", "info", "off"].indexOf(level) >= 0 ? level : "debug";
+    if (offsetEl) offsetEl.value = ["8", "9", "0", "-5", "-8"].indexOf(offset) >= 0 ? offset : "8";
+    var status = document.getElementById("log-config-status");
+    if (status) status.textContent = "当前：" + (levelEl ? levelEl.options[levelEl.selectedIndex].text : level) + "，UTC" + (Number(offset) >= 0 ? "+" : "") + offset;
+}
+
+async function saveLogConfig() {
+    var levelEl = document.getElementById("log-level");
+    var offsetEl = document.getElementById("timezone-offset");
+    if (!levelEl || !offsetEl) return;
+    var level = levelEl.value;
+    var offset = Number(offsetEl.value);
+    if (["debug", "info", "off"].indexOf(level) < 0 || !Number.isInteger(offset) || offset < -23 || offset > 23) {
+        showToast("日志配置无效", "error");
+        return;
+    }
+    var content = "LOG_LEVEL=" + level + "\nTIMEZONE_OFFSET=" + offset + "\n";
+    var command = "printf '%s' '" + content + "' > '" + LOG_CONFIG + "'";
+    var res = await execCommand(command);
+    if (res.errno === 0) {
+        var status = document.getElementById("log-config-status");
+        if (status) status.textContent = "已保存：" + levelEl.options[levelEl.selectedIndex].text + "，UTC" + (offset >= 0 ? "+" : "") + offset + "；重启引擎后生效";
+        showToast("日志配置已保存", "success");
+    } else {
+        showToast("日志配置保存失败", "error");
+    }
+}
+
 // ============================================================
 // 页面切换
 // ============================================================
@@ -95,6 +136,9 @@ function switchTab(tab) {
     document.querySelector('.nav-tab[data-tab="' + tab + '"]').classList.add('active');
     if (tab === 'features') {
         restoreAllStates();
+    }
+    if (tab === 'about') {
+        loadLogConfig();
     }
     if (tab === 'main') {
         setTimeout(function() { loadGovernors(); }, 300);
@@ -569,6 +613,7 @@ function restoreBlur() {
 document.addEventListener('DOMContentLoaded', function() {
     restoreBg();
     restoreBlur();
+    loadLogConfig();
 
     var uninstallBtn = document.getElementById('uninstall-module-btn');
     if (uninstallBtn && !uninstallBtn._listener) {

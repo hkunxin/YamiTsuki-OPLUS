@@ -434,6 +434,21 @@ body.has-bg .tools-group .card {
     margin-top: 12px;
 }
 
+.config-select {
+    min-width: 150px;
+    padding: 9px 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.config-select option {
+    background: #17172a;
+    color: #fff;
+}
+
 .add-area input {
     flex: 1;
     padding: 10px 16px;

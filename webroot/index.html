@@ -319,6 +319,35 @@
 
             <div class="card">
                 <div class="card-header">
+                    <span class="card-icon">📝</span>
+                    <span class="card-title">日志设置</span>
+                </div>
+                <div class="feature-desc">调试阶段建议使用详细日志；修改后重启 Rust 引擎生效。</div>
+                <div style="display:grid;gap:12px;margin-top:14px">
+                    <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--text-secondary)">
+                        <span>日志级别</span>
+                        <select id="log-level" class="config-select" onchange="saveLogConfig()">
+                            <option value="debug">详细（DEBUG）</option>
+                            <option value="info">精简（INFO）</option>
+                            <option value="off">关闭日志</option>
+                        </select>
+                    </label>
+                    <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--text-secondary)">
+                        <span>时区偏移</span>
+                        <select id="timezone-offset" class="config-select" onchange="saveLogConfig()">
+                            <option value="8">UTC+8（中国）</option>
+                            <option value="9">UTC+9（日本）</option>
+                            <option value="0">UTC+0</option>
+                            <option value="-5">UTC-5</option>
+                            <option value="-8">UTC-8</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="log-config-status" style="margin-top:10px;font-size:11px;color:var(--text-muted)">读取配置中...</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
                     <span class="card-icon">🎨</span>
                     <span class="card-title">外观设置</span>
                 </div>
