@@ -42,32 +42,43 @@ const GAME_LIST: &str = "/data/adb/modules/yamitsuki_oplus/game_list.txt";
 const BATTERY_CAPACITY: &str = "/sys/class/power_supply/battery/capacity";
 const BATTERY_VOLTAGE: &str = "/sys/class/power_supply/battery/voltage_now";
 const BATTERY_CURRENT: &str = "/sys/class/power_supply/battery/current_now";
+const BATTERY_POWER_NOW: &str = "/sys/class/power_supply/battery/power_now";
+const BATTERY_POWER_AVG: &str = "/sys/class/power_supply/battery/power_avg";
 
 fn read_sysfs(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_default().trim().to_string()
 }
 
-/// 自动检测电压/电流单位并计算功率 (W)。
-/// 标准 Linux: voltage_now=µV, current_now=µA
-/// OPLUS/MTK gauge: voltage_now=mV, current_now=mA
-/// 不依赖 power_now/power_avg（各厂商单位不统一，容易误判）
-fn battery_power_watts() -> String {
-    let parse_nz = |path: &str| read_sysfs(path).parse::<i64>().ok().filter(|v| *v != 0);
+struct PowerSampler {
+    watts: [f64; 5],
+    index: usize,
+    count: usize,
+}
 
-    match (parse_nz(BATTERY_VOLTAGE), parse_nz(BATTERY_CURRENT)) {
-        (Some(v), Some(i)) => {
-            let v_abs = v.unsigned_abs() as f64;
-            let i_abs = i.unsigned_abs() as f64;
-            let watts = if v_abs > 100_000.0 && i_abs > 100_000.0 {
-                // 标准单位: µV × µA → W
-                v_abs * i_abs / 1_000_000_000_000.0
-            } else {
-                // mV × mA → W = (V/1000) × (I/1000) = V×I / 10^6
-                v_abs * i_abs / 1_000_000.0
-            };
-            format!("{:.2}", watts)
-        }
-        _ => "NA".to_string(),
+impl PowerSampler {
+    fn new() -> Self { Self { watts: [0.0; 5], index: 0, count: 0 } }
+
+    /// 返回原始电压、电流、瞬时计算值和 5 次移动均值。PLG110 使用 mV/mA。
+    fn sample(&mut self) -> (String, String, String, String) {
+        let voltage_raw = read_sysfs(BATTERY_VOLTAGE);
+        let current_raw = read_sysfs(BATTERY_CURRENT);
+        let voltage = voltage_raw.parse::<i64>().ok().unwrap_or(0).unsigned_abs() as f64;
+        let current = current_raw.parse::<i64>().ok().unwrap_or(0).unsigned_abs() as f64;
+        let instantaneous = if voltage > 100_000.0 && current > 100_000.0 {
+            voltage * current / 1_000_000_000_000.0
+        } else if voltage > 0.0 && current > 0.0 {
+            voltage * current / 1_000_000.0
+        } else { 0.0 };
+        self.watts[self.index] = instantaneous;
+        self.index = (self.index + 1) % self.watts.len();
+        self.count = (self.count + 1).min(self.watts.len());
+        let average = self.watts[..self.count].iter().sum::<f64>() / self.count as f64;
+        (
+            voltage_raw,
+            current_raw,
+            format!("{:.2}", instantaneous),
+            format!("{:.2}", average),
+        )
     }
 }
 
@@ -190,6 +201,7 @@ fn daemon_loop(
     let mut prev_mode = String::new();
     let mut was_dozing = false;
     let mut last_scx_status = String::new();
+    let mut power_sampler = PowerSampler::new();
 
     loop {
         let active = mode_mgr.active_mode();
@@ -213,7 +225,7 @@ fn daemon_loop(
             (fas.update(), fas.current_gpu_freq())
         };
         let protection_temp = thermal.max_protection_temp();
-        cpu.apply_dynamic_cap(&active, cpu_load, gpu_avg, protection_temp);
+        let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, protection_temp);
 
         // ── Thread optimization (game mode only) ──
         if active == "performance" {
@@ -268,16 +280,30 @@ fn daemon_loop(
             logger::log(&format!("scx 状态: {}", scx_status));
             last_scx_status = scx_status.clone();
         }
+        let (voltage_raw, current_raw, power_inst, power_avg) = power_sampler.sample();
+        let soc_temp = thermal.real_temp() as f64 / 1000.0;
+        let cpu_temp = thermal.cpu_core_temp().unwrap_or(-1.0);
+        let gpu_temp = thermal.gpu_temp().unwrap_or(-1.0);
         logger::log(&format!(
-            "mode={} cpu0={}MHz cpu7={}MHz gpu={}MHz gpu_load={} gpu_control=devfreq temp={:.1}°C bat={}% power={}W io={} vm_sw={}",
+            "mode={} cpu0={}MHz cpu7={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=observe soc={:.1}C cpu_temp={:.1}C gpu_temp={:.1}C thermal_protect={:.1}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={}",
             active,
             cpu.read_freq(0) / 1000,
             cpu.read_freq(7) / 1000,
+            cpu_load,
+            cap_permille,
             if gpu_current > 0 { gpu_current / 1_000_000 } else { gpu.current_freq() / 1_000_000 },
             gpu_avg,
-            thermal.cpu_temp(),
+            soc_temp,
+            cpu_temp,
+            gpu_temp,
+            protection_temp as f64 / 1000.0,
             read_sysfs(BATTERY_CAPACITY),
-            battery_power_watts(),
+            voltage_raw,
+            current_raw,
+            power_inst,
+            power_avg,
+            read_sysfs(BATTERY_POWER_NOW),
+            read_sysfs(BATTERY_POWER_AVG),
             io.current(),
             vm.current_swappiness(),
         ));
