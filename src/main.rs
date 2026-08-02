@@ -64,10 +64,11 @@ impl PowerSampler {
         }
     }
 
-    /// 返回原始电压、电流、瞬时计算值和 5 次移动均值。PLG110 使用 mV/mA。
-    fn sample(&mut self) -> (String, String, String, String) {
+    /// 返回原始电压、电流、瞬时计算值、5 次移动均值与是否在充电（current_now 为负）。
+    fn sample(&mut self) -> (String, String, String, String, bool) {
         let voltage_raw = read_sysfs(BATTERY_VOLTAGE);
         let current_raw = read_sysfs(BATTERY_CURRENT);
+        let charging = current_raw.parse::<i64>().ok().unwrap_or(0) < 0;
         let voltage = voltage_raw.parse::<i64>().ok().unwrap_or(0).unsigned_abs() as f64;
         let current = current_raw.parse::<i64>().ok().unwrap_or(0).unsigned_abs() as f64;
         let instantaneous = if voltage > 100_000.0 && current > 100_000.0 {
@@ -84,6 +85,7 @@ impl PowerSampler {
             current_raw,
             format!("{:.2}", instantaneous),
             format!("{:.2}", average),
+            charging,
         )
     }
 }
@@ -220,6 +222,9 @@ fn daemon_loop(
     let mut thread_degraded = false;
     let mut thread_hot_ticks: u8 = 0;
     let mut thread_cool_ticks: u8 = 0;
+    let mut temp_history: [i64; 4] = [0; 4];
+    let mut temp_hist_idx: usize = 0;
+    let mut temp_hist_count: usize = 0;
 
     loop {
         let sampled_mode = mode_mgr.active_mode();
@@ -258,13 +263,24 @@ fn daemon_loop(
         let gpu_load = gpu_avg.unwrap_or(0);
         let thermal_snapshot = thermal.snapshot();
         let protection_temp = thermal_snapshot.protection_temp();
-        let (voltage_raw, current_raw, power_inst, power_avg) = power_sampler.sample();
+        let (voltage_raw, current_raw, power_inst, power_avg, charging) = power_sampler.sample();
         let power_watts = power_inst.parse::<f64>().unwrap_or(0.0);
+        let power_avg_watts = power_avg.parse::<f64>().unwrap_or(0.0);
+        // 充电时 current_now 为负，V×I 表示充电功率而非系统功耗，不用于降级判定。
+        let power_draw = if charging { 0.0 } else { power_avg_watts };
+        if let Some(soc) = thermal_snapshot.soc_max {
+            temp_history[temp_hist_idx] = soc;
+            temp_hist_idx = (temp_hist_idx + 1) % temp_history.len();
+            temp_hist_count = (temp_hist_count + 1).min(temp_history.len());
+        }
+        let smooth_temp = if temp_hist_count > 0 {
+            temp_history[..temp_hist_count].iter().sum::<i64>() / temp_hist_count as i64
+        } else { 0 };
         let gpu_temp_c = thermal_snapshot.gpu_max.map(|value| value as f64 / 1000.0).unwrap_or(0.0);
         let screen_off = mode_mgr.is_screen_off();
-        let gpu_idle = !screen_off && cpu_load <= 25 && power_watts < 1.5;
-        let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= 85 && (gpu_temp_c >= 52.0 || power_watts >= 3.5);
-        let gpu_clear = gpu_idle || (gpu_util_known && gpu_load <= 45 && gpu_temp_c > 0.0 && gpu_temp_c <= 48.0 && power_watts < 2.5);
+        let gpu_idle = !screen_off && cpu_load <= 25 && power_draw < 1.5;
+        let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= 85 && (gpu_temp_c >= 52.0 || power_draw >= 3.5);
+        let gpu_clear = gpu_idle || (gpu_util_known && gpu_load <= 45 && gpu_temp_c > 0.0 && gpu_temp_c <= 48.0 && power_draw < 2.5);
         if gpu_high {
             gpu_high_ticks = gpu_high_ticks.saturating_add(1);
             gpu_clear_ticks = 0;
@@ -289,9 +305,9 @@ fn daemon_loop(
         }
         let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, protection_temp, power_watts);
 
-        let valid_protection_temp = protection_temp > 0;
-        let high_thread_condition = valid_protection_temp && (protection_temp >= 52_000 || power_watts >= 4.5);
-        let cool_thread_condition = valid_protection_temp && protection_temp <= 48_000 && power_watts < 3.5;
+        let valid_protection_temp = smooth_temp > 0;
+        let high_thread_condition = valid_protection_temp && (smooth_temp >= 52_000 || power_draw >= 4.5);
+        let cool_thread_condition = valid_protection_temp && smooth_temp <= 48_000 && power_draw < 3.5;
         if high_thread_condition {
             thread_hot_ticks = thread_hot_ticks.saturating_add(1);
             thread_cool_ticks = 0;
@@ -302,12 +318,12 @@ fn daemon_loop(
             thread_hot_ticks = 0;
             thread_cool_ticks = 0;
         }
-        if !thread_degraded && thread_hot_ticks >= 2 {
+        if !thread_degraded && thread_hot_ticks >= 3 {
             thread_degraded = true;
-            logger::log(&format!("线程优化进入降级: temp={:.1}C power={:.2}W", protection_temp as f64 / 1000.0, power_watts));
-        } else if thread_degraded && thread_cool_ticks >= 4 {
+            logger::log(&format!("线程优化进入降级: temp={:.1}C power={:.2}W", smooth_temp as f64 / 1000.0, power_draw));
+        } else if thread_degraded && thread_cool_ticks >= 6 {
             thread_degraded = false;
-            logger::log(&format!("线程优化恢复: temp={:.1}C power={:.2}W", protection_temp as f64 / 1000.0, power_watts));
+            logger::log(&format!("线程优化恢复: temp={:.1}C power={:.2}W", smooth_temp as f64 / 1000.0, power_draw));
         }
 
         thread_opt_tick = thread_opt_tick.wrapping_add(1);
@@ -390,7 +406,7 @@ fn daemon_loop(
         let zone_summary = &thermal_snapshot.zone_summary;
         let last_core = cpu.last_core().unwrap_or(0);
         logger::log_debug(&format!(
-            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc_max={}C cpu_core_max={}C gpu_max={}C shell_front={}C shell_frame={}C shell_back={}C thermal_protect={}C bat={}% v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}", 
+            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc_max={}C cpu_core_max={}C gpu_max={}C shell_front={}C shell_frame={}C shell_back={}C thermal_protect={}C bat={}% charging={} v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
             active,
             cpu.read_freq(0) / 1000,
             last_core,
@@ -409,6 +425,7 @@ fn daemon_loop(
             shell_back_text,
             protection_temp_text,
             read_sysfs(BATTERY_CAPACITY),
+            charging,
             voltage_raw,
             current_raw,
             power_inst,
