@@ -242,6 +242,9 @@ fn daemon_loop(
             }
             prev_mode = active.clone();
             cpu.apply_mode(&active);
+            if cpu.diagnostic_write_failures() > 0 {
+                logger::log(&format!("CPU策略写入失败累计={}", cpu.diagnostic_write_failures()));
+            }
             gpu.apply_mode(&active);
         }
 
@@ -251,14 +254,16 @@ fn daemon_loop(
             let mut fas = fas_sched.lock().unwrap();
             (fas.update(), fas.current_gpu_freq())
         };
+        let gpu_util_known = gpu_avg.is_some();
+        let gpu_load = gpu_avg.unwrap_or(0);
         let protection_temp = thermal.max_protection_temp();
         let (voltage_raw, current_raw, power_inst, power_avg) = power_sampler.sample();
         let power_watts = power_inst.parse::<f64>().unwrap_or(0.0);
         let gpu_temp_c = thermal.gpu_temp().unwrap_or(0.0);
         let screen_off = mode_mgr.is_screen_off();
         let gpu_idle = !screen_off && cpu_load <= 25 && power_watts < 1.5;
-        let gpu_high = !gpu_idle && gpu_avg >= 85 && (gpu_temp_c >= 52.0 || power_watts >= 3.5);
-        let gpu_clear = gpu_idle || (gpu_avg <= 45 && gpu_temp_c > 0.0 && gpu_temp_c <= 48.0 && power_watts < 2.5);
+        let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= 85 && (gpu_temp_c >= 52.0 || power_watts >= 3.5);
+        let gpu_clear = gpu_idle || (gpu_util_known && gpu_load <= 45 && gpu_temp_c > 0.0 && gpu_temp_c <= 48.0 && power_watts < 2.5);
         if gpu_high {
             gpu_high_ticks = gpu_high_ticks.saturating_add(1);
             gpu_clear_ticks = 0;
@@ -278,7 +283,7 @@ fn daemon_loop(
         if requested_level != gpu_protection_level && (mode_changed || requested_level > 0 || gpu_clear_ticks >= 8) {
             if gpu.apply_protection(&active, requested_level) {
                 gpu_protection_level = requested_level;
-                logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W max_freq={}MHz", requested_level, gpu_avg, gpu_temp_c, power_watts, gpu.max_freq() / 1_000_000));
+                logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W max_freq={}MHz", requested_level, gpu_load, gpu_temp_c, power_watts, gpu.max_freq() / 1_000_000));
             }
         }
         let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, protection_temp, power_watts);
@@ -310,7 +315,10 @@ fn daemon_loop(
             for pkg in game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()) {
                 let pkg = if let Some(idx) = pkg.find('#') { &pkg[..idx] } else { pkg };
                 thread_opt.optimize_game_with_policy(pkg, !thread_degraded, !thread_degraded);
-                cgroup.assign_game(pkg);
+                let moved = cgroup.assign_game(pkg);
+                if moved == 0 {
+                    logger::log(&format!("cgroup迁移失败: pkg={}", pkg));
+                }
             }
         } else {
             let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
@@ -379,7 +387,7 @@ fn daemon_loop(
             cpu_load,
             cap_permille,
             if gpu_current > 0 { gpu_current / 1_000_000 } else { gpu.current_freq() / 1_000_000 },
-            gpu_avg,
+            gpu_load,
             gpu_protection_level,
             gpu.max_freq() / 1_000_000,
             soc_temp,
@@ -406,7 +414,7 @@ fn daemon_loop(
 
 fn main() {
     logger::init();
-    logger::log("══════ YamiTsuki V2.0 Rust 底层引擎启动 ══════");
+    logger::log("══════ MoonTune V2.0 Rust 底层引擎启动 ══════");
 
     // ── 硬件发现 ──
     let cpu = Arc::new(CpuManager::new());

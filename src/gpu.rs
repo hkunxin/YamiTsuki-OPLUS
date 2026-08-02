@@ -80,7 +80,7 @@ impl GpuManager {
         if self.available_freqs.is_empty() { return None; }
         match mode {
             "performance" => self.available_freqs.last().copied(),
-            "powersave" => self.available_freqs.first().copied(),
+            "powersave" => self.available_freqs.get(1).copied().or_else(|| self.available_freqs.first().copied()),
             _ => self.available_freqs.iter().rev().copied().find(|f| *f <= 780_000_000).or_else(|| self.available_freqs.first().copied()),
         }
     }

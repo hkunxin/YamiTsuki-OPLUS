@@ -71,8 +71,8 @@ impl IoManager {
                     }
                     // 模式特定微调
                     if mode == "powersave" {
-                        let _ = fs::write(format!("{}/read_ahead_kb", queue), "64");
-                        let _ = fs::write(format!("{}/nr_requests", queue), "32");
+                        let _ = fs::write(format!("{}/read_ahead_kb", queue), "128");
+                        let _ = fs::write(format!("{}/nr_requests", queue), "64");
                     }
                     if mode == "performance" {
                         let _ = fs::write(format!("{}/read_ahead_kb", queue), "1024");

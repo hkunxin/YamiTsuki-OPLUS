@@ -1,4 +1,4 @@
-name: Build YamiTsuki-OPLUS
+name: Build MoonTune-OPLUS
 
 on:
   push:
@@ -51,6 +51,15 @@ jobs:
           NDK_TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           echo "$NDK_TOOLCHAIN" >> $GITHUB_PATH
 
+      - name: Format Check
+        run: cargo fmt --all -- --check
+
+      - name: Check
+        run: cargo check --all-targets
+
+      - name: Test
+        run: cargo test --all-targets
+
       - name: Build Release Binary
         run: |
           cargo build --release --target ${{ env.TARGET }}
@@ -83,19 +92,19 @@ jobs:
       - name: Package ZIP Artifact
         run: |
           cd dist
-          zip -r ../YamiTsuki-OPLUS-V2.0.zip .
+          zip -r ../MoonTune-OPLUS-V2.0.zip .
           cd ..
           echo "=== ZIP Size ==="
-          ls -lh YamiTsuki-OPLUS-V2.0.zip
+          ls -lh MoonTune-OPLUS-V2.0.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: YamiTsuki-OPLUS-V2.0
-          path: YamiTsuki-OPLUS-V2.0.zip
+          name: MoonTune-OPLUS-V2.0
+          path: MoonTune-OPLUS-V2.0.zip
 
       - name: Upload to Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: YamiTsuki-OPLUS-V2.0.zip
+          files: MoonTune-OPLUS-V2.0.zip

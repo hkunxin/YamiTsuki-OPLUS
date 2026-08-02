@@ -1,10 +1,10 @@
 #!/system/bin/sh
-# YamiTsuki-OPLUS V2.0 卸载脚本
+# MoonTune-OPLUS V2.0 卸载脚本
 
 MODDIR=${0%/*}
 LOG_FILE="$MODDIR/yamitsuki.log"
 
-echo "[$(date)] YamiTsuki 卸载开始" >> "$LOG_FILE" 2>/dev/null
+echo "[$(date)] MoonTune 卸载开始" >> "$LOG_FILE" 2>/dev/null
 
 # 1. 杀掉守护进程
 echo "[$(date)] 停止引擎..." >> "$LOG_FILE" 2>/dev/null
@@ -73,5 +73,5 @@ rm -f /data/adb/modules/yamitsuki_oplus/device_spoof_result.txt 2>/dev/null
 # 11. 清理 cron / 定时任务
 crond -c /data/adb/modules/yamitsuki_oplus/crontab -K 2>/dev/null
 
-echo "[$(date)] YamiTsuki 卸载完成" >> "$LOG_FILE" 2>/dev/null
-echo "YamiTsuki V2.0 已卸载。重启手机即可彻底移除。"
+echo "[$(date)] MoonTune 卸载完成" >> "$LOG_FILE" 2>/dev/null
+echo "MoonTune V2.0 已卸载。重启手机即可彻底移除。"

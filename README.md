@@ -1,11 +1,11 @@
-# YamiTsuki-OPLUS V2.0 — 月之暗面
+# MoonTune-OPLUS V2.0 — 月之暗面
 
 **欧加真专属底层调度模块** · Rust 引擎
 
 ## 项目结构
 
 ```
-YamiTsuki-OPLUS-V2.0/
+MoonTune-OPLUS-V2.0/
 ├── Cargo.toml              # Rust 项目配置
 ├── build.rs                # 构建脚本
 ├── src/

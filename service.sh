@@ -15,7 +15,7 @@ fi
 if [ ! -f "$LOG_FILE" ]; then
     : > "$LOG_FILE"
 fi
-echo "$(date '+%Y-%m-%d %H:%M:%S %z') [INFO] YamiTsuki V2.0 服务启动" >> "$LOG_FILE"
+echo "$(date '+%Y-%m-%d %H:%M:%S %z') [INFO] MoonTune V2.0 服务启动" >> "$LOG_FILE"
 
 BRAND=$(getprop ro.product.brand)
 if ! echo "$BRAND" | grep -qiE "OPPO|OnePlus|realme"; then

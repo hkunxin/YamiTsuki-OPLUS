@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 const CPU_BASE: &str = "/sys/devices/system/cpu";
@@ -12,6 +13,7 @@ pub struct CpuManager {
     pub little_cores: Vec<u32>,
     pub middle_cores: Vec<u32>,
     pub prime_cores: Vec<u32>,
+    write_failures: AtomicUsize,
 }
 
 fn parse_cpu_range(raw: &str) -> Vec<u32> {
@@ -113,6 +115,7 @@ impl CpuManager {
             little_cores: little,
             middle_cores: middle,
             prime_cores: prime,
+            write_failures: AtomicUsize::new(0),
         }
     }
 
@@ -178,7 +181,7 @@ impl CpuManager {
     /// 返回实际频率上限系数的千分比，供诊断日志使用。
     pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, temp_mc: i64, power_watts: f64) -> u32 {
         let (base, max_with_load): (f64, f64) = match mode {
-            "powersave" => (0.40, 0.50),
+            "powersave" => (0.55, 0.65),
             "performance" => (0.85, 1.00),
             _ => (0.65, 0.85),
         };
@@ -195,11 +198,15 @@ impl CpuManager {
             else { 1.0 };
         let factor = (base + demand_boost).min(max_with_load) * thermal_limit * power_limit;
 
+        let mut failures = 0;
         for (policy, related) in self.policy_groups() {
             if let Some(&core) = related.first() {
-                self.write_policy_max(&policy, core, factor);
+                if !self.write_policy_max(&policy, core, factor) {
+                    failures += 1;
+                }
             }
         }
+        self.write_failures.fetch_add(failures, Ordering::Relaxed);
         (factor * 1000.0).round() as u32
     }
 
@@ -238,7 +245,10 @@ impl CpuManager {
         if let Ok(entries) = fs::read_dir(&policy_base) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if !matches!(name.as_str(), "policy0" | "policy4" | "policy7") {
+                let Some(suffix) = name.strip_prefix("policy") else {
+                    continue;
+                };
+                if suffix.is_empty() || !suffix.chars().all(|c| c.is_ascii_digit()) {
                     continue;
                 }
                 let path = entry.path();
@@ -253,7 +263,7 @@ impl CpuManager {
         groups
     }
 
-    fn write_policy_max(&self, policy: &str, core: u32, factor: f64) {
+    fn write_policy_max(&self, policy: &str, core: u32, factor: f64) -> bool {
         let max_path = format!("{}/cpuinfo_max_freq", policy);
         let min_path = format!("{}/cpuinfo_min_freq", policy);
         let target_path = format!("{}/scaling_max_freq", policy);
@@ -265,18 +275,34 @@ impl CpuManager {
             .ok()
             .and_then(|value| value.trim().parse::<u64>().ok())
             .unwrap_or_else(|| self.read_min_freq(core));
-        if max > 0 {
-            let _ = fs::write(target_path, ((max as f64 * factor) as u64).max(min).to_string());
+        if max == 0 {
+            return false;
         }
+        let target = ((max as f64 * factor) as u64).max(min);
+        self.write_readback(&target_path, &target.to_string())
     }
 
-    pub fn set_all_governors(&self, gov: &str) {
+    fn write_readback(&self, path: &str, value: &str) -> bool {
+        if fs::write(path, value).is_err() {
+            return false;
+        }
+        fs::read_to_string(path).map(|actual| actual.trim() == value).unwrap_or(false)
+    }
+
+    pub fn diagnostic_write_failures(&self) -> usize {
+        self.write_failures.load(Ordering::Relaxed)
+    }
+
+    pub fn set_all_governors(&self, gov: &str) -> usize {
+        let mut failures = 0;
         for (policy, _) in self.policy_groups() {
             let path = format!("{}/scaling_governor", policy);
-            if std::path::Path::new(&path).exists() {
-                let _ = fs::write(path, gov);
+            if std::path::Path::new(&path).exists() && !self.write_readback(&path, gov) {
+                failures += 1;
             }
         }
+        self.write_failures.fetch_add(failures, Ordering::Relaxed);
+        failures
     }
 
     pub fn governor_for_mode(&self, mode: &str) -> String {
@@ -302,11 +328,12 @@ impl CpuManager {
         self.set_all_governors(&gov);
 
         let factors = match mode {
-            "powersave" => (0.4, 0.45, 0.5),
+            "powersave" => (0.55, 0.60, 0.65),
             "balance" => (0.8, 0.75, 0.7),
             "performance" => (1.0, 1.0, 1.0),
             _ => return,
         };
+        let mut failures = 0;
         for (policy, related) in self.policy_groups() {
             let factor = if related.iter().any(|core| self.little_cores.contains(core)) {
                 factors.0
@@ -316,8 +343,11 @@ impl CpuManager {
                 factors.2
             };
             if let Some(&core) = related.first() {
-                self.write_policy_max(&policy, core, factor);
+                if !self.write_policy_max(&policy, core, factor) {
+                    failures += 1;
+                }
             }
         }
+        self.write_failures.fetch_add(failures, Ordering::Relaxed);
     }
 }

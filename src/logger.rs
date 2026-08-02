@@ -3,7 +3,7 @@ use std::io::Write;
 
 const LOG_FILE: &str = "/data/adb/modules/yamitsuki_oplus/yamitsuki.log";
 const CONFIG_FILE: &str = "/data/adb/modules/yamitsuki_oplus/log_config.conf";
-const MAX_LOG_BYTES: u64 = 256 * 1024;
+const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
 pub fn init() {
     rotate_if_needed();

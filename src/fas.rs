@@ -17,34 +17,53 @@ fn numbers(raw: &str) -> Vec<u64> {
 fn ged_util(raw: &str) -> Option<u32> {
     let values = numbers(raw);
     if values.len() >= 3 {
+        let third = values[2];
         let total = values.iter().take(3).sum::<u64>();
-        if total > 0 && values.iter().take(3).any(|value| *value > 100) {
-            return Some(((values[2].saturating_mul(100) / total).min(100)) as u32);
+        if total > 100 {
+            return Some((third.saturating_mul(100) / total).min(100) as u32);
         }
+        return Some(third.min(100) as u32);
     }
-    values.first().copied().filter(|v| *v <= 100).map(|v| v as u32)
+    values.first().copied().filter(|value| *value <= 100).map(|value| value as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ged_util;
+
+    #[test]
+    fn parses_ged_utilization_field() {
+        assert_eq!(ged_util("30 0 70"), Some(70));
+        assert_eq!(ged_util("0 0 100"), Some(100));
+    }
+
+    #[test]
+    fn parses_ged_accumulated_counters() {
+        assert_eq!(ged_util("300 200 500"), Some(50));
+        assert_eq!(ged_util("0 0 0"), Some(0));
+    }
 }
 
 impl FasScheduler {
     pub fn new() -> Self { FasScheduler { history: [0; 4], idx: 0 } }
 
-    pub fn gpu_util(&self) -> u32 {
+    pub fn gpu_util(&self) -> Option<u32> {
         if let Ok(raw) = fs::read_to_string(GED_UTIL_PATH) {
-            if let Some(value) = ged_util(&raw) { return value; }
+            if let Some(value) = ged_util(&raw) { return Some(value); }
         }
         if let Ok(raw) = fs::read_to_string(GED_LOADING_PATH) {
             let values = numbers(&raw);
             if values.len() >= 2 && values[1] > 0 {
-                return ((values[0].saturating_mul(100) / values[1]).min(100)) as u32;
+                return Some(((values[0].saturating_mul(100) / values[1]).min(100)) as u32);
             }
         }
         if let Ok(raw) = fs::read_to_string(GPU_BUSY) {
             let values = numbers(&raw);
             if values.len() >= 2 && values[1] > 0 {
-                return ((values[0].saturating_mul(100) / values[1]).min(100)) as u32;
+                return Some(((values[0].saturating_mul(100) / values[1]).min(100)) as u32);
             }
         }
-        fs::read_to_string(GPU_UTIL).ok().and_then(|raw| ged_util(&raw)).unwrap_or(0)
+        fs::read_to_string(GPU_UTIL).ok().and_then(|raw| ged_util(&raw))
     }
 
     pub fn current_gpu_freq(&self) -> u64 {
@@ -63,11 +82,11 @@ impl FasScheduler {
         else { value }
     }
 
-    pub fn update(&mut self) -> u32 {
-        let curr = self.gpu_util();
+    pub fn update(&mut self) -> Option<u32> {
+        let curr = self.gpu_util()?;
         self.history[self.idx] = curr;
         self.idx = (self.idx + 1) % self.history.len();
-        self.history.iter().sum::<u32>() / self.history.len() as u32
+        Some(self.history.iter().sum::<u32>() / self.history.len() as u32)
     }
 
     pub fn freq_scale(&self, avg_util: u32) -> f64 {

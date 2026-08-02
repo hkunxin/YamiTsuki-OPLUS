@@ -1,6 +1,6 @@
 #!/system/bin/sh
 
-ui_print "🌙 YamiTsuki-OPLUS 模块 V2.0 安装中..."
+ui_print "🌙 MoonTune-OPLUS 模块 V2.0 安装中..."
 ui_print "🔧 正在部署..."
 
 OLD_MODULE="/data/adb/modules/yamitsuki_oplus"
@@ -69,28 +69,19 @@ chmod 644 /data/local/tmp/yamitsuki_mode 2>/dev/null || true
 touch "$MODPATH/yamitsuki.log" 2>/dev/null || true
 chmod 644 "$MODPATH/yamitsuki.log" 2>/dev/null || true
 if [ "$IS_UPDATE" -eq 1 ]; then
-    echo "[$(date)] YamiTsuki 已更新" >> "$MODPATH/yamitsuki.log" 2>/dev/null || true
+    echo "[$(date)] MoonTune 已更新" >> "$MODPATH/yamitsuki.log" 2>/dev/null || true
 else
-    echo "[$(date)] YamiTsuki 已安装" >> "$MODPATH/yamitsuki.log" 2>/dev/null || true
+    echo "[$(date)] MoonTune 已安装" >> "$MODPATH/yamitsuki.log" 2>/dev/null || true
 fi
 
 ui_print ""
 ui_print "╔════════════════════════════════════════════════════════════╗"
-ui_print "║   🎉 YamiTsuki 安装/更新完成！                           ║"
+ui_print "║   🎉 MoonTune 安装/更新完成！                            ║"
 ui_print "║   🌙 重启后生效                                          ║"
-ui_print "║   🐧 有问题？加入炒饭社让大佬们狠狠嘲笑你吧！            ║"
-ui_print "║   🔗 https://qm.qq.com/q/81PdbfU7f2                      ║"
 ui_print "╚════════════════════════════════════════════════════════════╝"
 ui_print ""
 
 sleep 1
-
-ui_print "🌀 正在跳转炒饭社…… (如果没反应，杂鱼前辈就手动加吧)"
-if command -v am >/dev/null 2>&1; then
-    am start -a android.intent.action.VIEW -d "https://qm.qq.com/q/81PdbfU7f2" >/dev/null 2>&1 &
-else
-    ui_print "⚠️ 无法启动跳转，am 命令不存在"
-fi
 
 ui_print ""
 ui_print "  🌙 月之暗面与你同在，杂鱼前辈。"

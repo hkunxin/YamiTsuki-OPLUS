@@ -1,9 +1,9 @@
 [package]
 name = "yamitsuki"
 version = "2.0.0"
-authors = ["YamiTsuki Team"]
+authors = ["MoonTune Team"]
 edition = "2021"
-description = "YamiTsuki-OPLUS 底层调度引擎 · Rust 守护进程"
+description = "MoonTune-OPLUS 底层调度引擎 · Rust 守护进程"
 license = "GPL-3.0"
 
 [dependencies]

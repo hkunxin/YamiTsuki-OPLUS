@@ -1,5 +1,5 @@
 // ============================================================
-// YamiTsuki WebUI V2.0 — 完整控制脚本
+// MoonTune WebUI V2.0 — 完整控制脚本
 // ============================================================
 
 var _execCallbackId = 0;
@@ -619,20 +619,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (uninstallBtn && !uninstallBtn._listener) {
         uninstallBtn._listener = true;
         uninstallBtn.addEventListener('click', function() {
-            if (confirm('⚠️ 确定要卸载 YamiTsuki 模块吗？\n\n此操作不可逆，所有配置和日志将被清除。')) {
+            if (confirm('⚠️ 确定要卸载 MoonTune 模块吗？\n\n此操作不可逆，所有配置和日志将被清除。')) {
                 execCommand('sh /data/adb/modules/yamitsuki_oplus/uninstall.sh');
                 alert('✅ 卸载脚本已执行。请重启设备或手动在管理器应用中移除模块。');
             }
-        });
-    }
-
-    var joinBtn = document.getElementById('join-group-btn');
-    if (joinBtn && !joinBtn._listener) {
-        joinBtn._listener = true;
-        joinBtn.addEventListener('click', function() {
-            var url = 'https://qm.qq.com/q/81PdbfU7f2';
-            execCommand('am start -a android.intent.action.VIEW -d "' + url + '"');
-            showToast('正在跳转至QQ群...', 'info');
         });
     }
 
@@ -684,6 +674,6 @@ setInterval(refreshLog, 5000);
 
 window.addEventListener("load", function() {
     setTimeout(function() {
-        showToast("YamiTsuki V2.0 已启动", "info");
+        showToast("MoonTune V2.0 已启动", "info");
     }, 500);
 });
