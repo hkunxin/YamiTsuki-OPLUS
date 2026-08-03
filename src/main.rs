@@ -263,7 +263,6 @@ let mut diag_tick: u32 = 0;
         let gpu_util_known = gpu_avg.is_some();
         let gpu_load = gpu_avg.unwrap_or(0);
         let thermal_snapshot = thermal.snapshot();
-        let protection_temp = thermal_snapshot.protection_temp();
         let (voltage_raw, current_raw, power_inst, power_avg, charging) = power_sampler.sample();
         let power_watts = power_inst.parse::<f64>().unwrap_or(0.0);
         let power_avg_watts = power_avg.parse::<f64>().unwrap_or(0.0);
