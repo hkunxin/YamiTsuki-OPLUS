@@ -132,6 +132,7 @@ fn resolve_app_label(package: &str) -> String {
          [ -n \"$apk\" ] || exit 1; \
          \"$P\" dump badging \"$apk\" 2>/dev/null | grep -m1 '^application-label:' | cut -d\\' -f2",
         MODULE_BIN_DIR,
+        MODULE_BIN_DIR,
         shell_quote(package),
     );
     if let Some(label) = sh_stdout(&resolver).filter(|value| !value.is_empty() && value != package) {
