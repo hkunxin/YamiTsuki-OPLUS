@@ -1,4 +1,4 @@
-mod cpu;
+﻿mod cpu;
 mod gpu;
 mod mode;
 mod features;
@@ -12,7 +12,7 @@ mod cgroups;
 mod fas;
 mod scx;
 mod thermal;
-
+mod analytics;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,7 +31,7 @@ use io_sched::IoManager;
 use cgroups::CgroupManager;
 use fas::FasScheduler;
 use thermal::{ThermalManager, ThermalSnapshot};
-
+use analytics::AnalyticsCollector;
 const MODULE_DIR: &str = "/data/adb/modules/yamitsuki_oplus";
 const MODE_FILE: &str = "/data/local/tmp/yamitsuki_mode";
 const CMD_FILE: &str = "/data/local/tmp/yamitsuki_cmd";
@@ -212,7 +212,8 @@ fn daemon_loop(
     let mut was_dozing = false;
     let mut last_scx_status = String::new();
     let mut power_sampler = PowerSampler::new();
-    let mut diag_tick: u32 = 0;
+    let mut analytics = AnalyticsCollector::new();
+let mut diag_tick: u32 = 0;
     let mut last_foreground = String::new();
     let mut last_top_processes = String::new();
     let mut gpu_protection_level: u8 = 0;
@@ -266,7 +267,8 @@ fn daemon_loop(
         let (voltage_raw, current_raw, power_inst, power_avg, charging) = power_sampler.sample();
         let power_watts = power_inst.parse::<f64>().unwrap_or(0.0);
         let power_avg_watts = power_avg.parse::<f64>().unwrap_or(0.0);
-        // 充电时 current_now 为负，V×I 表示充电功率而非系统功耗，不用于降级判定。
+        analytics.record(&read_sysfs(BATTERY_CAPACITY), &voltage_raw, &current_raw, power_avg_watts, charging);
+// 充电时 current_now 为负，V×I 表示充电功率而非系统功耗，不用于降级判定。
         let power_draw = if charging { 0.0 } else { power_avg_watts };
         if let Some(soc) = thermal_snapshot.soc_max {
             temp_history[temp_hist_idx] = soc;

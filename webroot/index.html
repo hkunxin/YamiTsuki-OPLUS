@@ -1,10 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>MoonTune · 引擎</title>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="analytics.css" />
 </head>
 <body>
     <div class="orb orb-1"></div>
@@ -22,6 +23,7 @@
         <!-- 导航栏 -->
         <nav class="nav-bar">
             <button class="nav-tab active" data-tab="main" onclick="switchTab('main')">🏠 主页</button>
+            <button class="nav-tab" data-tab="analytics" onclick="switchTab('analytics')">📈 耗电分析</button>
             <button class="nav-tab" data-tab="features" onclick="switchTab('features')">⚡ 附加功能</button>
             <button class="nav-tab" data-tab="about" onclick="switchTab('about')">🙋 关于</button>
         </nav>
@@ -142,6 +144,20 @@
                     <button class="log-refresh-btn" onclick="refreshLog()">⟳ 刷新</button>
                 </div>
                 <div class="log-box" id="logBox">加载中...</div>
+            </section>
+        </div>
+
+        <div id="tab-analytics" class="tab-content">
+            <section class="card">
+                <div class="card-header"><span class="card-icon">🔋</span><span class="card-title">电量与功率曲线</span><button class="log-refresh-btn" onclick="loadAnalytics()">⟳ 刷新</button></div>
+                <div class="analytics-meta" id="analytics-meta">正在读取采样数据...</div>
+                <canvas id="powerChart" class="power-chart" height="220"></canvas>
+                <div class="chart-legend"><span>电量 %</span><span>系统功率 W</span></div>
+            </section>
+            <section class="card">
+                <div class="card-header"><span class="card-icon">📱</span><span class="card-title">应用耗电统计</span></div>
+                <div class="analytics-meta">基于前台应用窗口归因，结果为低开销估算值</div>
+                <div id="appPowerTable" class="power-table"><div class="empty-state">正在读取...</div></div>
             </section>
         </div>
 
@@ -371,5 +387,6 @@
     </div>
 
     <script src="script.js"></script>
+    <script src="analytics.js"></script>
 </body>
 </html>

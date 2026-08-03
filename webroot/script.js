@@ -134,6 +134,9 @@ function switchTab(tab) {
     });
     document.getElementById('tab-' + tab).classList.add('active');
     document.querySelector('.nav-tab[data-tab="' + tab + '"]').classList.add('active');
+    if (tab === 'analytics') {
+        loadAnalytics();
+    }
     if (tab === 'features') {
         restoreAllStates();
     }
@@ -247,8 +250,12 @@ async function updateStatus() {
         var gpuNodeRes = await execCommand("if [ -r /sys/kernel/ged/hal/gpu_utilization ]; then echo 'GED 可读'; else echo '未检测'; fi; if [ -w /sys/kernel/ged/hal/custom_upbound_gpu_freq ]; then echo '可写'; fi");
         document.getElementById("gpuStatus").textContent = gpuNodeRes.stdout.trim().replace(/\\n/g, " / ") || "--";
 
-        var battRes = await execCommand("dumpsys battery 2>/dev/null | grep level | awk '{print $2}'");
-        document.getElementById("batteryLevel").textContent = battRes.stdout.trim() || "--%";
+        var battRes = await execCommand("cat /data/local/tmp/yamitsuki_power_status 2>/dev/null");
+        var powerStatus = {};
+        battRes.stdout.split(/\r?\n/).forEach(function(line) { var pair = line.split('='); if (pair.length > 1) powerStatus[pair[0]] = pair.slice(1).join('='); });
+        document.getElementById("batteryLevel").textContent = powerStatus.capacity ? powerStatus.capacity.trim() + "%" : "--%";
+        document.getElementById("screenState").textContent = powerStatus.charging === "true" ? "充电中" : "放电中";
+        document.getElementById("systemPower").textContent = powerStatus.power_w ? Number(powerStatus.power_w).toFixed(2) + " W" : "--";
 
         var screenRes = await execCommand("dumpsys display 2>/dev/null | grep -i mScreenState | head -1 | grep -oE 'ON|OFF'");
         var screen = screenRes.stdout.trim() || "ON";

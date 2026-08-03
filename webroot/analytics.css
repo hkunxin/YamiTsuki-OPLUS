@@ -1,0 +1,69 @@
+.analytics-meta {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin: -4px 0 12px;
+}
+
+.power-chart {
+    display: block;
+    width: 100%;
+    height: 220px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.chart-legend {
+    display: flex;
+    justify-content: space-around;
+    color: var(--text-secondary);
+    font-size: 11px;
+    margin-top: 10px;
+}
+
+.power-table {
+    display: grid;
+    gap: 6px;
+}
+
+.power-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 90px 90px;
+    gap: 8px;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 11px;
+}
+
+.power-row:last-child {
+    border-bottom: none;
+}
+
+.power-row span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.power-row small {
+    display: block;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.power-row b {
+    color: var(--accent-cyan);
+    text-align: right;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+.power-head {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.power-head span:not(:first-child) {
+    text-align: right;
+}
