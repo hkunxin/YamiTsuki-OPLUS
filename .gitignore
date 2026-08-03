@@ -18,3 +18,7 @@ Thumbs.db
 # Temp files
 *.tmp
 *.bak
+
+# Bundled native binaries (download via CI AAPT_URL instead of committing)
+/native/
+

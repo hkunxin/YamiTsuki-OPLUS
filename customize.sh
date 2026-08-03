@@ -53,6 +53,8 @@ fi
 set_perm_recursive $MODPATH 0 0 0755 0755 2>/dev/null || true
 set_perm $MODPATH/game_list.txt 0 0 0644 2>/dev/null || true
 [ -f "$MODPATH/bin/yamitsuki_rs" ] && set_perm $MODPATH/bin/yamitsuki_rs 0 0 0755 2>/dev/null || true
+[ -f "$MODPATH/bin/aapt" ] && set_perm $MODPATH/bin/aapt 0 0 0755 2>/dev/null || true
+[ -f "$MODPATH/bin/aapt2" ] && set_perm $MODPATH/bin/aapt2 0 0 0755 2>/dev/null || true
 
 ui_print "⚡ 创建功能标志..."
 for f in $FEATURES; do

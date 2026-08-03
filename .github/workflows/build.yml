@@ -15,6 +15,10 @@ env:
   CARGO_TERM_COLOR: always
   TARGET: aarch64-linux-android
   RUST_VERSION: "1.85"
+  # Optional: direct URL to an aarch64-linux-android aapt/aapt2 static
+  # binary to bundle into the module. Set via GitHub Actions repo
+  # variable named AAPT_URL (or leave empty to skip bundling).
+  AAPT_URL: ${{ vars.AAPT_URL }}
 
 jobs:
   build:
@@ -65,12 +69,34 @@ jobs:
       - name: Prepare Module Package
         run: |
           # Copy compiled binary to bin/
-          mkdir -p dist/bin dist/webroot
+          mkdir -p dist/bin dist/webroot native
           cp target/${{ env.TARGET }}/release/yamitsuki_rs dist/bin/yamitsuki_rs
           
           # Strip binary using NDK's llvm-strip
           STRIP_TOOL="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
           $STRIP_TOOL dist/bin/yamitsuki_rs
+
+          # Download bundled aapt parser if AAPT_URL is configured
+          # (set it as a GitHub Actions repository variable; leave empty to skip)
+          if [ -n "$AAPT_URL" ]; then
+            echo "Downloading bundled aapt from configured URL..."
+            curl -fsSL -o native/aapt "$AAPT_URL"
+            chmod 0755 native/aapt
+          fi
+
+          # Bundle bundled aapt/aapt2 parser (if present in native/)
+          # Place the aarch64 static binary at native/aapt (or native/aapt2)
+          # and it will be packaged into the module bin/ automatically.
+          if [ -f native/aapt ]; then
+            cp native/aapt dist/bin/aapt
+            chmod 0755 dist/bin/aapt
+            echo "Bundled native/aapt into dist/bin/aapt"
+          fi
+          if [ -f native/aapt2 ]; then
+            cp native/aapt2 dist/bin/aapt2
+            chmod 0755 dist/bin/aapt2
+            echo "Bundled native/aapt2 into dist/bin/aapt2"
+          fi
 
           # Copy module files
           cp webroot/index.html dist/webroot/
@@ -85,7 +111,7 @@ jobs:
 
           # Show final binary size
           echo "=== Binary Size ==="
-          ls -lh dist/bin/yamitsuki_rs
+          ls -lh dist/bin/*
           echo "=== Package Size ==="
           du -sh dist/
 

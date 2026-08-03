@@ -23,10 +23,15 @@ echo "[3] cmd package resolve-activity --brief（裸输出）"
 cmd package resolve-activity --brief "$PKG" 2>/dev/null | tail -n 2
 echo
 
-echo "[4] aapt/aapt2 遍历探测 application-label（改进后逻辑）"
+echo "[4] aapt/aapt2 遍历探测 application-label（含系统 APEX 固定路径）"
 for bin in aapt aapt2; do
     P=$(command -v "$bin" 2>/dev/null)
-    [ -n "$P" ] || { echo "  $bin: 未在 PATH 找到"; continue; }
+    if [ -z "$P" ]; then
+        for cand in /apex/com.android.sdkext/bin/$bin /system/bin/$bin /vendor/bin/$bin /system/xbin/$bin; do
+            if [ -x "$cand" ]; then P="$cand"; break; fi
+        done
+    fi
+    [ -n "$P" ] || { echo "  $bin: 未找到"; continue; }
     apk=$(pm path "$PKG" 2>/dev/null | head -1 | sed 's/^package://')
     echo "  $bin: $P"
     echo "  APK: $apk"
