@@ -61,6 +61,22 @@ var CMD_FILE = "/data/local/tmp/yamitsuki_cmd";
 var GAME_LIST = MODULE_DIR + "/game_list.txt";
 var LOG_FILE = MODULE_DIR + "/yamitsuki.log";
 var LOG_CONFIG = MODULE_DIR + "/log_config.conf";
+var PROFILE_CONFIG = MODULE_DIR + "/profiles.conf";
+var profileMode = 'powersave';
+var profileDefaults = {
+    powersave: { governor:'auto', cpu_little:0.55, cpu_middle:0.60, cpu_prime:0.65, cpu_dynamic_base:0.55, cpu_dynamic_max:0.65, gpu_ratio:0.35, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:15, vm_dirty_ratio:10, vm_dirty_background_ratio:3, vm_dirty_writeback:1000, vm_dirty_expire:2000, vm_vfs_cache:80, vm_overcommit:0, io_scheduler:'mq-deadline', io_read_ahead:128, io_nr_requests:64, io_rq_affinity:2, io_nomerges:0, thermal_spoof:28000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 },
+    balance: { governor:'auto', cpu_little:0.80, cpu_middle:0.75, cpu_prime:0.70, cpu_dynamic_base:0.65, cpu_dynamic_max:0.85, gpu_ratio:0.75, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:40, vm_dirty_ratio:10, vm_dirty_background_ratio:5, vm_dirty_writeback:500, vm_dirty_expire:3000, vm_vfs_cache:60, vm_overcommit:1, io_scheduler:'mq-deadline', io_read_ahead:256, io_nr_requests:128, io_rq_affinity:2, io_nomerges:0, thermal_spoof:35000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 },
+    performance: { governor:'auto', cpu_little:1, cpu_middle:1, cpu_prime:1, cpu_dynamic_base:0.85, cpu_dynamic_max:1, gpu_ratio:1, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:10, vm_dirty_ratio:40, vm_dirty_background_ratio:10, vm_dirty_writeback:3000, vm_dirty_expire:6000, vm_vfs_cache:30, vm_overcommit:1, io_scheduler:'mq-deadline', io_read_ahead:1024, io_nr_requests:512, io_rq_affinity:2, io_nomerges:0, thermal_spoof:42000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 }
+};
+var profileGroups = [
+    { title:'CPU 频率与调度', fields:[['governor','CPU 调速器','text','当前可用 governor 名称'],['cpu_little','小核频率系数','number', '范围 0.10 - 1.00'],['cpu_middle','中核频率系数','number', '范围 0.10 - 1.00'],['cpu_prime','大核频率系数','number', '范围 0.10 - 1.00'],['cpu_dynamic_base','动态上限基准','number', '范围 0.10 - 1.00'],['cpu_dynamic_max','动态上限最大值','number', '范围 0.10 - 1.00']] },
+    { title:'GPU 频率与保护', fields:[['gpu_ratio','GPU 频率系数','number', '范围 0.10 - 1.00'],['gpu_protect_1','保护级别 1 上限（Hz）','number', '频率单位 Hz'],['gpu_protect_2','保护级别 2 上限（Hz）','number', '频率单位 Hz'],['gpu_protect_3','保护级别 3 上限（Hz）','number', '频率单位 Hz']] },
+    { title:'VM 内存参数', fields:[['vm_swappiness','VM swappiness','number', '范围 0 - 100'],['vm_dirty_ratio','Dirty ratio','number', '范围 0 - 100'],['vm_dirty_background_ratio','Dirty background ratio','number', '范围 0 - 100'],['vm_dirty_writeback','Dirty writeback（厘秒）','number', '非负整数'],['vm_dirty_expire','Dirty expire（厘秒）','number', '非负整数'],['vm_vfs_cache','VFS cache pressure','number', '范围 0 - 100'],['vm_overcommit','Overcommit 模式','number', '仅支持 0 / 1 / 2']] },
+    { title:'IO 存储参数', fields:[['io_scheduler','IO 调度器','text', '如 mq-deadline / bfq / none'],['io_read_ahead','Read ahead（KB）','number', '非负整数'],['io_nr_requests','请求队列长度','number', '非负整数'],['io_rq_affinity','RQ affinity','number', '通常为 0 / 1 / 2'],['io_nomerges','Nomerges','number', '通常为 0 / 1 / 2']] },
+    { title:'温度与动态保护', fields:[['thermal_spoof','温度显示值（mC）','number', '温度单位 mC'],['gpu_high_load','GPU 高负载阈值（%）','number', '范围 0 - 100'],['gpu_high_temp','GPU 高温阈值（℃）','number', '摄氏度'],['gpu_high_power','GPU 高功率阈值（W）','number', '瓦特'],['gpu_clear_load','GPU 清除负载阈值（%）','number', '范围 0 - 100'],['gpu_clear_temp','GPU 清除温度阈值（℃）','number', '摄氏度'],['gpu_clear_power','GPU 清除功率阈值（W）','number', '瓦特'],['thread_hot_temp','线程降级温度（mC）','number', '温度单位 mC'],['thread_hot_power','线程降级功率（W）','number', '瓦特'],['thread_cool_temp','线程恢复温度（mC）','number', '温度单位 mC'],['thread_cool_power','线程恢复功率（W）','number', '瓦特']] }
+];
+var profileFields = profileGroups.reduce(function(all, group) { return all.concat(group.fields); }, []);
+var profileFieldMap = profileFields.reduce(function(map, field) { map[field[0]] = field; return map; }, {});
 
 var FEATURE_KEYS = {
     'charge_boost': 'yamitsuki_charge_boost',
@@ -120,6 +136,138 @@ async function saveLogConfig() {
     }
 }
 
+function escapeHtml(value) {
+    return String(value).replace(/[&<>\"']/g, function(char) { return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[char]; });
+}
+function profileInput(field, value) {
+    var id = 'profile-' + field[0];
+    var numeric = field[2] === 'number';
+    return '<label class="profile-field" for="' + id + '"><span><strong>' + escapeHtml(field[1]) + '</strong><small>' + escapeHtml(field[3]) + '</small></span><input id="' + id + '" type="' + field[2] + '" value="' + escapeHtml(value) + '" ' + (numeric ? 'inputmode="decimal"' : '') + '></label>';
+}
+async function loadProfileConfig() {
+    var editor = document.getElementById('profile-editor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="profile-loading">正在读取配置...</div>';
+    var res = await execCommand('cat ' + PROFILE_CONFIG + ' 2>/dev/null');
+    var values = Object.assign({}, profileDefaults[profileMode]);
+    res.stdout.split(/\r?\n/).forEach(function(line) {
+        var pair = line.split('=');
+        var prefix = profileMode + '.';
+        if (pair.length > 1 && pair[0].trim().startsWith(prefix)) {
+            var key = pair[0].trim().substring(prefix.length);
+            var field = profileFieldMap[key];
+            if (field) values[key] = field[2] === 'number' ? Number(pair.slice(1).join('=').trim()) : pair.slice(1).join('=').trim();
+        }
+    });
+    editor.innerHTML = profileGroups.map(function(group) {
+        return '<div class="profile-group"><div class="profile-group-title">' + escapeHtml(group.title) + '</div><div class="profile-group-fields">' + group.fields.map(function(field) { return profileInput(field, values[field[0]]); }).join('') + '</div></div>';
+    }).join('');
+    updateProfileSummary(values);
+}
+function selectProfileMode(mode) {
+    if (!profileDefaults[mode]) return;
+    profileMode = mode;
+    document.querySelectorAll('[data-profile-mode]').forEach(function(btn) { btn.classList.toggle('active', btn.dataset.profileMode === mode); });
+    loadProfileConfig();
+}
+function profileNumber(key, value) {
+    var ranges = {
+        cpu_little:[0.1,1], cpu_middle:[0.1,1], cpu_prime:[0.1,1], cpu_dynamic_base:[0.1,1], cpu_dynamic_max:[0.1,1], gpu_ratio:[0.1,1],
+        vm_swappiness:[0,100], vm_dirty_ratio:[0,100], vm_dirty_background_ratio:[0,100], vm_vfs_cache:[0,100], vm_overcommit:[0,2],
+        gpu_high_load:[0,100], gpu_clear_load:[0,100], gpu_high_temp:[0,150], gpu_clear_temp:[0,150], gpu_high_power:[0,100], gpu_clear_power:[0,100], thread_hot_power:[0,100], thread_cool_power:[0,100],
+        gpu_protect_1:[1,3000000000], gpu_protect_2:[1,3000000000], gpu_protect_3:[1,3000000000], vm_dirty_writeback:[0,2147483647], vm_dirty_expire:[0,2147483647], io_read_ahead:[0,1048576], io_nr_requests:[1,1048576], io_rq_affinity:[0,2], io_nomerges:[0,2], thermal_spoof:[0,150000], thread_hot_temp:[0,150000], thread_cool_temp:[0,150000]
+    };
+    var parsed = Number(value);
+    var integerFields = ['gpu_protect_1','gpu_protect_2','gpu_protect_3','vm_swappiness','vm_dirty_ratio','vm_dirty_background_ratio','vm_dirty_writeback','vm_dirty_expire','vm_vfs_cache','vm_overcommit','io_read_ahead','io_nr_requests','io_rq_affinity','io_nomerges','thermal_spoof','gpu_high_load','gpu_clear_load','thread_hot_temp','thread_cool_temp'];
+    if (!Number.isFinite(parsed) || integerFields.indexOf(key) >= 0 && !Number.isInteger(parsed)) return null;
+    var range = ranges[key];
+    if (range && (parsed < range[0] || parsed > range[1])) return null;
+    return parsed;
+}
+function collectProfileValues() {
+    var values = {};
+    for (var i = 0; i < profileFields.length; i++) {
+        var field = profileFields[i];
+        var input = document.getElementById('profile-' + field[0]);
+        if (!input) return { error:'配置项缺失：' + field[1] };
+        if (field[2] === 'text') {
+            values[field[0]] = input.value.trim();
+            if (!values[field[0]] || !/^[a-zA-Z0-9_-]+$/.test(values[field[0]])) return { error:field[1] + '格式无效' };
+        } else {
+            var number = profileNumber(field[0], input.value);
+            if (number === null) return { error:field[1] + '超出允许范围' };
+            values[field[0]] = number;
+        }
+    }
+    if (values.cpu_dynamic_base > values.cpu_dynamic_max) return { error:'动态上限基准不能高于最大值' };
+    if (values.gpu_clear_load > values.gpu_high_load) return { error:'GPU 清除负载阈值不应高于高负载阈值' };
+    return { values:values };
+}
+function updateProfileSummary(values) {
+    var status = document.getElementById('profile-status');
+    if (!status) return;
+    status.textContent = '当前编辑：' + profileMode + ' · CPU ' + Math.round(values.cpu_prime * 100) + '% · GPU ' + Math.round(values.gpu_ratio * 100) + '%';
+}
+async function saveProfile() {
+    var collected = collectProfileValues();
+    if (collected.error) { showToast(collected.error, 'warning'); return; }
+    var res = await execCommand('cat ' + PROFILE_CONFIG + ' 2>/dev/null');
+    var lines = res.stdout.split(/\r?\n/);
+    var values = collected.values;
+    var seen = {};
+    lines = lines.map(function(line) {
+        var pair = line.split('=');
+        var prefix = profileMode + '.';
+        if (pair.length > 1 && pair[0].trim().startsWith(prefix)) {
+            var key = pair[0].trim().substring(prefix.length);
+            if (values[key] !== undefined) { seen[key] = true; return pair[0].trim() + '=' + values[key]; }
+        }
+        return line;
+    });
+    profileFields.forEach(function(field) { if (!seen[field[0]]) lines.push(profileMode + '.' + field[0] + '=' + values[field[0]]); });
+    var command = "printf '%s' '" + lines.join('\\n').replace(/'/g, "'\\\"'\\\"'") + "' > '" + PROFILE_CONFIG + "'";
+    var result = await execCommand(command);
+    if (result.errno === 0) {
+        updateProfileSummary(values);
+        showToast('参数已保存，正在自动应用', 'success');
+    } else {
+        showToast('参数保存失败', 'error');
+    }
+}
+function resetProfile() {
+    var values = profileDefaults[profileMode];
+    profileFields.forEach(function(field) {
+        var input = document.getElementById('profile-' + field[0]);
+        if (input) input.value = values[field[0]];
+    });
+    updateProfileSummary(values);
+    showToast('已恢复默认参考值，点击保存后应用', 'info');
+}
+async function resetAllProfiles() {
+    if (!window.confirm('确定恢复全部模式的默认参考值吗？')) return;
+    var res = await execCommand('cat ' + PROFILE_CONFIG + ' 2>/dev/null');
+    var lines = res.stdout.split(/\r?\n/);
+    Object.keys(profileDefaults).forEach(function(mode) {
+        var defaults = profileDefaults[mode];
+        lines = lines.map(function(line) {
+            var pair = line.split('='), prefix = mode + '.';
+            if (pair.length > 1 && pair[0].trim().startsWith(prefix)) {
+                var key = pair[0].trim().substring(prefix.length);
+                if (defaults[key] !== undefined) return pair[0].trim() + '=' + defaults[key];
+            }
+            return line;
+        });
+    });
+    var command = "printf '%s' '" + lines.join('\\n').replace(/'/g, "'\\\"'\\\"'") + "' > '" + PROFILE_CONFIG + "'";
+    var result = await execCommand(command);
+    if (result.errno === 0) {
+        await loadProfileConfig();
+        showToast('全部模式已恢复默认参考值', 'success');
+    } else {
+        showToast('恢复默认失败', 'error');
+    }
+}
+
 // ============================================================
 // 页面切换
 // ============================================================
@@ -137,6 +285,9 @@ function switchTab(tab) {
     }
     if (tab === 'features') {
         restoreAllStates();
+    }
+    if (tab === 'profiles') {
+        selectProfileMode(profileMode);
     }
     if (tab === 'about') {
         loadLogConfig();

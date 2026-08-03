@@ -51,6 +51,25 @@ body.has-bg {
     background-color: transparent !important;
 }
 
+.profile-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; }
+.profile-reference { color:var(--text-muted); font-size:11px; }
+.profile-reset-all { padding:7px 10px; font-size:11px; }
+.profile-mode-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:16px 0; }
+.profile-editor { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.profile-group { min-width:0; padding:12px; border:1px solid var(--glass-border); border-radius:14px; background:rgba(255,255,255,.018); }
+.profile-group-title { margin-bottom:10px; color:var(--text-primary); font-size:12px; font-weight:700; }
+.profile-group-fields { display:grid; gap:8px; }
+.profile-field { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0; padding:8px; border:1px solid var(--glass-border); border-radius:9px; color:var(--text-secondary); font-size:11px; }
+.profile-field span { display:grid; min-width:0; gap:3px; }
+.profile-field strong { overflow:hidden; color:var(--text-secondary); font-size:11px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
+.profile-field small { color:var(--text-muted); font-size:9px; }
+.profile-field input { width:106px; flex:0 0 106px; padding:7px; color:var(--text-primary); background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:7px; font:12px monospace; }
+.profile-field input:focus { outline:none; border-color:var(--accent-purple); box-shadow:0 0 0 2px rgba(168,85,247,.15); }
+.profile-actions { display:flex; gap:10px; margin-top:16px; }
+.profile-loading { grid-column:1 / -1; padding:24px; color:var(--text-muted); text-align:center; }
+@media (max-width:760px) { .profile-editor { grid-template-columns:1fr; } }
+@media (max-width:480px) { .profile-toolbar, .profile-actions { align-items:stretch; flex-direction:column; } .profile-field input { width:96px; flex-basis:96px; } }
+
 body.has-bg .orb {
     opacity: 0.15;
 }

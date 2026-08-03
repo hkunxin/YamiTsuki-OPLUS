@@ -28,8 +28,10 @@ fn scheduler_available(scheduler_path: &str, name: &str) -> bool {
 
 impl IoManager {
     pub fn apply(&self, sched: IoScheduler, mode: &str) {
+        let config = crate::config::load(mode);
         // 目标调度器优先级列表（首选 → 回退）
-        let candidates: Vec<(&str, &str, &str, &str, &str)> = match sched {
+        let configured_scheduler = config.io_scheduler.as_str().trim();
+        let candidates = match sched {
             IoScheduler::MqDeadline => vec![
                 ("mq-deadline", "256", "128", "2", "0"),
                 ("bfq",       "256", "128", "2", "0"),
@@ -54,30 +56,22 @@ impl IoManager {
         for scheduler_path in real_queue_files() {
             // 从候选列表中找到第一个可用的调度器
             let chosen = candidates.iter().find(|(name, _, _, _, _)| {
-                scheduler_available(&scheduler_path, name)
-            });
+                *name == configured_scheduler && scheduler_available(&scheduler_path, name)
+            }).or_else(|| candidates.iter().find(|(name, _, _, _, _)| scheduler_available(&scheduler_path, name)));
 
-            if let Some((name, ra_kb, nr_req, rq_af, nomerge)) = chosen {
+            if let Some((name, _ra_kb, _nr_req, _rq_af, _nomerge)) = chosen {
                 let _ = fs::write(&scheduler_path, name);
                 if let Some(queue) = scheduler_path.strip_suffix("/scheduler") {
                     let values = [
-                        ("read_ahead_kb", *ra_kb),
-                        ("nr_requests", *nr_req),
-                        ("rq_affinity", *rq_af),
-                        ("nomerges", *nomerge),
+                        ("read_ahead_kb", config.io_read_ahead.to_string()),
+                        ("nr_requests", config.io_nr_requests.to_string()),
+                        ("rq_affinity", config.io_rq_affinity.to_string()),
+                        ("nomerges", config.io_nomerges.to_string()),
                     ];
                     for (node, value) in values {
                         let _ = fs::write(format!("{}/{}", queue, node), value);
                     }
-                    // 模式特定微调
-                    if mode == "powersave" {
-                        let _ = fs::write(format!("{}/read_ahead_kb", queue), "128");
-                        let _ = fs::write(format!("{}/nr_requests", queue), "64");
-                    }
-                    if mode == "performance" {
-                        let _ = fs::write(format!("{}/read_ahead_kb", queue), "1024");
-                        let _ = fs::write(format!("{}/nr_requests", queue), "512");
-                    }
+
                 }
             }
         }

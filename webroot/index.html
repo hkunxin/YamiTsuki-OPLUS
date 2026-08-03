@@ -25,6 +25,7 @@
             <button class="nav-tab active" data-tab="main" onclick="switchTab('main')">🏠 主页</button>
             <button class="nav-tab" data-tab="analytics" onclick="switchTab('analytics')">📈 耗电分析</button>
             <button class="nav-tab" data-tab="features" onclick="switchTab('features')">⚡ 附加功能</button>
+            <button class="nav-tab" data-tab="profiles" onclick="switchTab('profiles')">🎛️ 模式参数</button>
             <button class="nav-tab" data-tab="about" onclick="switchTab('about')">🙋 关于</button>
         </nav>
 
@@ -276,6 +277,22 @@
         </div>
 
         <!-- ===== 关于页面（完整） ===== -->
+        <div id="tab-profiles" class="tab-content">
+            <section class="card">
+                <div class="card-header"><span class="card-icon">🎛️</span><span class="card-title">模式参数</span></div>
+                <div class="feature-desc">当前内置值是安全参考值；修改后写入配置文件，守护进程会自动重载。输入框下方会显示单位和允许范围。</div>
+                <div class="profile-toolbar"><span class="profile-reference">参考值：程序默认配置</span><button class="btn btn-ghost profile-reset-all" onclick="resetAllProfiles()">全部恢复默认</button></div>
+                <div class="profile-mode-tabs" id="profile-mode-tabs">
+                    <button class="mode-btn active" data-profile-mode="powersave" onclick="selectProfileMode('powersave')">省电</button>
+                    <button class="mode-btn" data-profile-mode="balance" onclick="selectProfileMode('balance')">均衡</button>
+                    <button class="mode-btn" data-profile-mode="performance" onclick="selectProfileMode('performance')">性能</button>
+                </div>
+                <div id="profile-editor" class="profile-editor"></div>
+                <div class="profile-actions"><button class="btn btn-primary" onclick="saveProfile()">保存当前模式</button><button class="btn btn-ghost" onclick="resetProfile()">恢复默认参考值</button></div>
+                <div id="profile-status" class="feature-desc"></div>
+            </section>
+        </div>
+
         <div id="tab-about" class="tab-content">
             <div class="dev-cards-container">
                 <div class="card dev-card">

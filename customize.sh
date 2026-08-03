@@ -19,6 +19,10 @@ if [ "$IS_UPDATE" -eq 1 ]; then
         cp -f "$OLD_MODULE/log_config.conf" "$MODPATH/log_config.conf" 2>/dev/null || true
         ui_print "  ✅ 沿用: log_config.conf"
     fi
+    if [ -f "$OLD_MODULE/profiles.conf" ]; then
+        cp -f "$OLD_MODULE/profiles.conf" "$MODPATH/profiles.conf" 2>/dev/null || true
+        ui_print "  ✅ 沿用: profiles.conf"
+    fi
     for f in $FEATURES; do
         if [ -f "$OLD_MODULE/$f" ]; then
             ENABLED_FEATURES="$ENABLED_FEATURES $f"
@@ -30,6 +34,9 @@ if [ "$IS_UPDATE" -eq 1 ]; then
 else
     ui_print "⚡ 首次安装，全部功能默认启用"
     ENABLED_FEATURES=$FEATURES
+fi
+if [ ! -f "$MODPATH/profiles.conf" ] && [ -f "$OLD_MODULE/profiles.conf" ]; then
+    cp -f "$OLD_MODULE/profiles.conf" "$MODPATH/profiles.conf" 2>/dev/null || true
 fi
 
 ui_print "📂 创建目录..."
@@ -52,6 +59,7 @@ fi
 
 set_perm_recursive $MODPATH 0 0 0755 0755 2>/dev/null || true
 set_perm $MODPATH/game_list.txt 0 0 0644 2>/dev/null || true
+[ -f "$MODPATH/profiles.conf" ] && set_perm $MODPATH/profiles.conf 0 0 0644 2>/dev/null || true
 [ -f "$MODPATH/bin/yamitsuki_rs" ] && set_perm $MODPATH/bin/yamitsuki_rs 0 0 0755 2>/dev/null || true
 [ -f "$MODPATH/bin/aapt" ] && set_perm $MODPATH/bin/aapt 0 0 0755 2>/dev/null || true
 [ -f "$MODPATH/bin/aapt2" ] && set_perm $MODPATH/bin/aapt2 0 0 0755 2>/dev/null || true

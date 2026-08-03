@@ -64,7 +64,7 @@ impl ThermalManager {
     pub fn real_temp(&self) -> i64 { Self::soc_temp().unwrap_or(self.original) }
 
     pub fn spoof_temp(&self, mode: &str) -> i64 {
-        match mode { "powersave" => 28_000, "balance" => 35_000, "performance" => 42_000, _ => 35_000 }
+        crate::config::load(mode).thermal_spoof
     }
 
     /// PLG110 专用：只写 /proc/shell-temp，保留所有真实 thermal zone 和硬件保护。

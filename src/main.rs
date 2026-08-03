@@ -13,6 +13,7 @@ mod fas;
 mod scx;
 mod thermal;
 mod analytics;
+mod config;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -200,6 +201,9 @@ fn daemon_loop(
     cgroup: Arc<CgroupManager>,
 ) {
     let mut prev_mode = String::new();
+    let mut config_stamp = fs::metadata(config::CONFIG_FILE)
+        .and_then(|meta| meta.modified())
+        .ok();
     let mut pending_mode = String::new();
     let mut pending_mode_samples = 0u8;
     let mut was_dozing = false;
@@ -228,15 +232,26 @@ let mut diag_tick: u32 = 0;
             pending_mode = sampled_mode;
             pending_mode_samples = 1;
         }
-        let initializing = prev_mode.is_empty();
-        let mode_changed = pending_mode_samples >= 2 && pending_mode != prev_mode;
-        let active = if mode_changed || initializing { pending_mode.clone() } else { prev_mode.clone() };
+        let current_config_stamp = fs::metadata(config::CONFIG_FILE)
+            .and_then(|meta| meta.modified())
+            .ok();
+        let config_changed = current_config_stamp != config_stamp;
+        if config_changed {
+            config_stamp = current_config_stamp;
+        }
+        let initializing = prev_mode.is_empty() && !pending_mode.is_empty();
+        let mode_changed = pending_mode_samples >= 2 && !pending_mode.is_empty() && pending_mode != prev_mode;
+        let active = if mode_changed || initializing || (prev_mode.is_empty() && config_changed) {
+            pending_mode.clone()
+        } else {
+            prev_mode.clone()
+        };
         if mode_changed {
             let reason = mode_mgr.decision_reason();
             logger::log(&format!("模式切换: {} -> {}，原因: {}", prev_mode, active, reason));
         }
-        if mode_changed || initializing {
-            if !mode_changed {
+        if mode_changed || initializing || config_changed {
+            if initializing {
                 logger::log(&format!("初始模式: {}，原因: {}", active, mode_mgr.decision_reason()));
             }
             prev_mode = active.clone();
@@ -273,8 +288,9 @@ let mut diag_tick: u32 = 0;
         let gpu_temp_c = thermal_snapshot.gpu_max.map(|value| value as f64 / 1000.0).unwrap_or(0.0);
         let screen_off = mode_mgr.is_screen_off();
         let gpu_idle = !screen_off && cpu_load <= 25 && power_draw < 1.5;
-        let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= 85 && (gpu_temp_c >= 52.0 || power_draw >= 3.5);
-        let gpu_clear = gpu_idle || (gpu_util_known && gpu_load <= 45 && gpu_temp_c > 0.0 && gpu_temp_c <= 48.0 && power_draw < 2.5);
+        let active_config = config::load(&active);
+        let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= active_config.gpu_high_load && (gpu_temp_c >= active_config.gpu_high_temp || power_draw >= active_config.gpu_high_power);
+        let gpu_clear = gpu_idle || (gpu_util_known && gpu_load <= active_config.gpu_clear_load && gpu_temp_c > 0.0 && gpu_temp_c <= active_config.gpu_clear_temp && power_draw < active_config.gpu_clear_power);
         if gpu_high {
             gpu_high_ticks = gpu_high_ticks.saturating_add(1);
             gpu_clear_ticks = 0;
@@ -300,8 +316,8 @@ let mut diag_tick: u32 = 0;
         let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, smooth_temp, power_draw);
 
         let valid_protection_temp = smooth_temp > 0;
-        let high_thread_condition = valid_protection_temp && (smooth_temp >= 52_000 || power_draw >= 4.5);
-        let cool_thread_condition = valid_protection_temp && smooth_temp <= 48_000 && power_draw < 3.5;
+        let high_thread_condition = valid_protection_temp && (smooth_temp >= active_config.thread_hot_temp || power_draw >= active_config.thread_hot_power);
+        let cool_thread_condition = valid_protection_temp && smooth_temp <= active_config.thread_cool_temp && power_draw < active_config.thread_cool_power;
         if high_thread_condition {
             thread_hot_ticks = thread_hot_ticks.saturating_add(1);
             thread_cool_ticks = 0;
@@ -340,7 +356,7 @@ let mut diag_tick: u32 = 0;
         }
 
         // ── IO scheduler ──
-        if mode_changed {
+        if mode_changed || config_changed {
             let sched = IoManager::scheduler_for_mode(&active);
             io.apply(sched, &active);
         }

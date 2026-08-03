@@ -13,39 +13,18 @@ pub struct VmManager;
 
 impl VmManager {
     pub fn apply_mode(&self, mode: &str) {
-        match mode {
-            "powersave" => {
-                // PLG110/UFS：避免高 swappiness 导致额外 swap 写入和功耗。
-                let _ = fs::write(VM_SWAPPINESS, "15");
-                let _ = fs::write(VM_DIRTY_RATIO, "10");
-                let _ = fs::write(VM_DIRTY_BG_RATIO, "3");
-                let _ = fs::write(VM_DIRTY_WB_CS, "1000");
-                let _ = fs::write(VM_DIRTY_EXPIRE, "2000");
-                let _ = fs::write(VM_VFS_CACHE, "80");
-                let _ = fs::write(VM_OVERCOMMIT, "0");
-            }
-            "balance" => {
-                // Balanced: moderate everything
-                let _ = fs::write(VM_SWAPPINESS, "40");
-                let _ = fs::write(VM_DIRTY_RATIO, "10");
-                let _ = fs::write(VM_DIRTY_BG_RATIO, "5");
-                let _ = fs::write(VM_DIRTY_WB_CS, "500");
-                let _ = fs::write(VM_DIRTY_EXPIRE, "3000");
-                let _ = fs::write(VM_VFS_CACHE, "60");
-                let _ = fs::write(VM_OVERCOMMIT, "1");
-            }
-            "performance" => {
-                // Low swappiness, high dirty ratio (buffer writes), low cache pressure
-                let _ = fs::write(VM_SWAPPINESS, "10");
-                let _ = fs::write(VM_DIRTY_RATIO, "40");
-                let _ = fs::write(VM_DIRTY_BG_RATIO, "10");
-                let _ = fs::write(VM_DIRTY_WB_CS, "3000");
-                let _ = fs::write(VM_DIRTY_EXPIRE, "6000");
-                let _ = fs::write(VM_VFS_CACHE, "30");
-                let _ = fs::write(VM_OVERCOMMIT, "1");
-            }
-            _ => {}
-        }
+        let config = crate::config::load(mode);
+        let write = |path: &str, value: u32| {
+            let _ = fs::write(path, value.to_string());
+        };
+        write(VM_SWAPPINESS, config.vm_swappiness);
+        write(VM_DIRTY_RATIO, config.vm_dirty_ratio);
+        write(VM_DIRTY_BG_RATIO, config.vm_dirty_background_ratio);
+        write(VM_DIRTY_WB_CS, config.vm_dirty_writeback);
+        write(VM_DIRTY_EXPIRE, config.vm_dirty_expire);
+        write(VM_VFS_CACHE, config.vm_vfs_cache);
+        write(VM_OVERCOMMIT, config.vm_overcommit);
+
     }
 
     /// Drop page cache / inode cache (one-shot, useful during mode switch)

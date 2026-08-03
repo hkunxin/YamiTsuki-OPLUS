@@ -1,7 +1,6 @@
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-
 const CPU_BASE: &str = "/sys/devices/system/cpu";
 const CPU_POSSIBLE: &str = "/sys/devices/system/cpu/possible";
 
@@ -180,11 +179,8 @@ impl CpuManager {
     /// PLG110 保守动态上限：仅采用 CPU 压力，不让未校准的 GED GPU 值触发提频。
     /// 返回实际频率上限系数的千分比，供诊断日志使用。
     pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, temp_mc: i64, power_watts: f64) -> u32 {
-        let (base, max_with_load): (f64, f64) = match mode {
-            "powersave" => (0.55, 0.65),
-            "performance" => (0.85, 1.00),
-            _ => (0.65, 0.85),
-        };
+        let config = crate::config::load(mode);
+        let (base, max_with_load) = (config.cpu_dynamic_base, config.cpu_dynamic_max);
         let demand_boost: f64 = if cpu_load >= 85 && power_watts < 3.5 { 0.20 }
             else if cpu_load >= 65 && power_watts < 3.0 { 0.10 }
             else if cpu_load >= 45 && power_watts < 2.5 { 0.05 }
@@ -313,6 +309,7 @@ impl CpuManager {
     }
 
     pub fn apply_mode(&self, mode: &str) {
+        let config = crate::config::load(mode);
         let saved_gov = fs::read_to_string(
             "/data/adb/modules/yamitsuki_oplus/governor_selected",
         )
@@ -320,19 +317,16 @@ impl CpuManager {
         .trim()
         .to_string();
 
-        let gov = if saved_gov.is_empty() || saved_gov == "auto" {
+        let gov = if !config.governor.is_empty() && config.governor != "auto" {
+            config.governor.clone()
+        } else if saved_gov.is_empty() || saved_gov == "auto" {
             self.governor_for_mode(mode)
         } else {
             saved_gov
         };
         self.set_all_governors(&gov);
 
-        let factors = match mode {
-            "powersave" => (0.55, 0.60, 0.65),
-            "balance" => (0.8, 0.75, 0.7),
-            "performance" => (1.0, 1.0, 1.0),
-            _ => return,
-        };
+        let factors = (config.cpu_little, config.cpu_middle, config.cpu_prime);
         let mut failures = 0;
         for (policy, related) in self.policy_groups() {
             let factor = if related.iter().any(|core| self.little_cores.contains(core)) {

@@ -78,11 +78,9 @@ impl GpuManager {
 
     fn target_freq(&self, mode: &str) -> Option<u64> {
         if self.available_freqs.is_empty() { return None; }
-        match mode {
-            "performance" => self.available_freqs.last().copied(),
-            "powersave" => self.available_freqs.get(1).copied().or_else(|| self.available_freqs.first().copied()),
-            _ => self.available_freqs.iter().rev().copied().find(|f| *f <= 780_000_000).or_else(|| self.available_freqs.first().copied()),
-        }
+        let config = crate::config::load(mode);
+        let limit = (self.available_freqs.last().copied().unwrap_or(0) as f64 * config.gpu_ratio) as u64;
+        self.available_freqs.iter().rev().copied().find(|freq| *freq <= limit).or_else(|| self.available_freqs.first().copied())
     }
 
     fn write_devfreq_max(&self, target: u64) -> bool {
@@ -100,10 +98,11 @@ impl GpuManager {
 
     pub fn apply_protection(&self, mode: &str, level: u8) -> bool {
         if self.vendor != GpuVendor::DevfreqMali { return false; }
+        let config = crate::config::load(mode);
         let cap = match level {
-            3 => Some(520_000_000),
-            2 => Some(650_000_000),
-            1 => Some(780_000_000),
+            3 => Some(config.gpu_protect_3),
+            2 => Some(config.gpu_protect_2),
+            1 => Some(config.gpu_protect_1),
             _ => None,
         };
         self.capped_target(mode, cap).map(|target| self.write_devfreq_max(target)).unwrap_or(false)
