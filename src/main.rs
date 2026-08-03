@@ -303,7 +303,7 @@ fn daemon_loop(
                 logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W max_freq={}MHz", requested_level, gpu_load, gpu_temp_c, power_watts, gpu.max_freq() / 1_000_000));
             }
         }
-        let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, protection_temp, power_watts);
+        let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, smooth_temp, power_draw);
 
         let valid_protection_temp = smooth_temp > 0;
         let high_thread_condition = valid_protection_temp && (smooth_temp >= 52_000 || power_draw >= 4.5);
