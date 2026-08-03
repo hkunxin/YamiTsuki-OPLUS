@@ -36,7 +36,7 @@ impl AnalyticsCollector {
     fn begin_new_session(&mut self, charging: bool) -> bool {
         if !charging && self.charging {
             self.session = self.session.saturating_add(1);
-            logger::log(&format!("耗电统计开启新放电会话: #{}", self.session));
+            crate::logger::log(&format!("耗电统计开启新放电会话: #{}", self.session));
             self.charging = false;
             return true;
         }

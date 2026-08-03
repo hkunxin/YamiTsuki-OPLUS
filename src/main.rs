@@ -3,7 +3,7 @@ mod gpu;
 mod mode;
 mod features;
 mod device_spoof;
-mod logger;
+pub(crate) mod logger;
 mod vm;
 mod threads;
 mod doze;
