@@ -123,20 +123,15 @@ fn sh_stdout(script: &str) -> Option<String> {
 }
 
 fn resolve_app_label(package: &str) -> String {
-    let aapt = format!(
-        "command -v aapt >/dev/null 2>&1 || exit 1; apk=$(pm path {} 2>/dev/null | head -1 | sed 's/^package://'); \
-         [ -n \"$apk\" ] || exit 1; aapt dump badging \"$apk\" 2>/dev/null | grep -m1 \"^application-label:\" | cut -d\\' -f2",
+    let resolver = format!(
+        "for bin in aapt aapt2; do P=$(command -v \"$bin\" 2>/dev/null); \
+         [ -n \"$P\" ] || continue; \
+         apk=$(pm path {} 2>/dev/null | head -1 | sed 's/^package://'); \
+         [ -n \"$apk\" ] || break; \
+         \"$bin\" dump badging \"$apk\" 2>/dev/null | grep -m1 '^application-label:' | cut -d\\' -f2; break; done",
         shell_quote(package),
     );
-    if let Some(label) = sh_stdout(&aapt).filter(|value| !value.is_empty() && value != package) {
-        return label;
-    }
-
-    let dumpsys = format!(
-        "dumpsys package {} 2>/dev/null | grep -m1 -E 'ApplicationLabel|nonLocalizedLabel|label=' | sed 's/^[^=]*=//' | xargs",
-        shell_quote(package),
-    );
-    if let Some(label) = sh_stdout(&dumpsys).filter(|value| !value.is_empty() && value != package) {
+    if let Some(label) = sh_stdout(&resolver).filter(|value| !value.is_empty() && value != package) {
         return label;
     }
 
