@@ -5,6 +5,7 @@ pub const CONFIG_FILE: &str = "/data/adb/modules/yamitsuki_oplus/profiles.conf";
 #[derive(Clone)]
 pub struct ModeConfig {
     pub governor: String,
+    pub gpu_governor: String,
     pub cpu_little: f64,
     pub cpu_middle: f64,
     pub cpu_prime: f64,
@@ -45,7 +46,7 @@ fn defaults(mode: &str) -> ModeConfig {
         "performance" => (1.0, 1.0, 1.0, .85, 1.0, 1.0, 10, 40, 10, 3000, 6000, 30, 1, 1024, 512, 42_000),
         _ => (.8, .75, .7, .65, .85, .75, 40, 10, 5, 500, 3000, 60, 1, 256, 128, 35_000),
     };
-    ModeConfig { governor: "auto".into(), cpu_little, cpu_middle, cpu_prime, cpu_dynamic_base: base, cpu_dynamic_max: max, gpu_ratio, gpu_protect_1: 780_000_000, gpu_protect_2: 650_000_000, gpu_protect_3: 520_000_000, vm_swappiness: swappiness, vm_dirty_ratio: dirty_ratio, vm_dirty_background_ratio: dirty_bg, vm_dirty_writeback: writeback, vm_dirty_expire: expire, vm_vfs_cache: cache, vm_overcommit: overcommit, io_scheduler: "mq-deadline".into(), io_read_ahead: read_ahead, io_nr_requests: requests, io_rq_affinity: 2, io_nomerges: 0, thermal_spoof: thermal, gpu_high_load: 85, gpu_high_temp: 52.0, gpu_high_power: 3.5, gpu_clear_load: 45, gpu_clear_temp: 48.0, gpu_clear_power: 2.5, thread_hot_temp: 52_000, thread_hot_power: 4.5, thread_cool_temp: 48_000, thread_cool_power: 3.5 }
+    ModeConfig { governor: "auto".into(), gpu_governor: "auto".into(), cpu_little, cpu_middle, cpu_prime, cpu_dynamic_base: base, cpu_dynamic_max: max, gpu_ratio, gpu_protect_1: 780_000_000, gpu_protect_2: 650_000_000, gpu_protect_3: 520_000_000, vm_swappiness: swappiness, vm_dirty_ratio: dirty_ratio, vm_dirty_background_ratio: dirty_bg, vm_dirty_writeback: writeback, vm_dirty_expire: expire, vm_vfs_cache: cache, vm_overcommit: overcommit, io_scheduler: "mq-deadline".into(), io_read_ahead: read_ahead, io_nr_requests: requests, io_rq_affinity: 2, io_nomerges: 0, thermal_spoof: thermal, gpu_high_load: 85, gpu_high_temp: 52.0, gpu_high_power: 3.5, gpu_clear_load: 45, gpu_clear_temp: 48.0, gpu_clear_power: 2.5, thread_hot_temp: 52_000, thread_hot_power: 4.5, thread_cool_temp: 48_000, thread_cool_power: 3.5 }
 }
 
 fn value(raw: &str, key: &str) -> Option<String> {
@@ -61,7 +62,7 @@ fn parsed<T: std::str::FromStr>(raw: &str, key: &str, fallback: T) -> T {
 
 macro_rules! load_number {
     ($raw:expr, $cfg:expr, $field:ident, $key:expr) => {
-        $cfg.$field = parsed($raw, $key, $cfg.$field);
+        $cfg.$field = parsed($raw, &$key, $cfg.$field);
     };
 }
 
@@ -71,6 +72,7 @@ pub fn load(mode: &str) -> ModeConfig {
     let raw = fs::read_to_string(CONFIG_FILE).unwrap_or_default();
     let key = |name: &str| format!("{}.{}", mode, name);
     cfg.governor = value(&raw, &key("governor")).unwrap_or_else(|| cfg.governor.clone());
+    cfg.gpu_governor = value(&raw, &key("gpu_governor")).unwrap_or_else(|| cfg.gpu_governor.clone());
     load_number!(&raw, cfg, cpu_little, key("cpu_little")); load_number!(&raw, cfg, cpu_middle, key("cpu_middle")); load_number!(&raw, cfg, cpu_prime, key("cpu_prime"));
     load_number!(&raw, cfg, cpu_dynamic_base, key("cpu_dynamic_base")); load_number!(&raw, cfg, cpu_dynamic_max, key("cpu_dynamic_max")); load_number!(&raw, cfg, gpu_ratio, key("gpu_ratio"));
     load_number!(&raw, cfg, gpu_protect_1, key("gpu_protect_1")); load_number!(&raw, cfg, gpu_protect_2, key("gpu_protect_2")); load_number!(&raw, cfg, gpu_protect_3, key("gpu_protect_3"));

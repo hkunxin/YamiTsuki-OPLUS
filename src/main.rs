@@ -255,6 +255,8 @@ let mut diag_tick: u32 = 0;
                 logger::log(&format!("初始模式: {}，原因: {}", active, mode_mgr.decision_reason()));
             }
             prev_mode = active.clone();
+            pending_mode = active.clone();
+            pending_mode_samples = 0;
             cpu.apply_mode(&active);
             if cpu.diagnostic_write_failures() > 0 {
                 logger::log(&format!("CPU策略写入失败累计={}", cpu.diagnostic_write_failures()));
@@ -307,7 +309,7 @@ let mut diag_tick: u32 = 0;
             else if gpu_high_ticks >= 1 { 1 }
             else if gpu_clear_ticks >= 8 { 0 }
             else { gpu_protection_level };
-        if requested_level != gpu_protection_level && (mode_changed || requested_level > 0 || gpu_clear_ticks >= 8) {
+        if requested_level != gpu_protection_level && (mode_changed || config_changed || requested_level > 0 || gpu_clear_ticks >= 8) {
             if gpu.apply_protection(&active, requested_level) {
                 gpu_protection_level = requested_level;
                 logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W max_freq={}MHz", requested_level, gpu_load, gpu_temp_c, power_watts, gpu.max_freq() / 1_000_000));
@@ -362,7 +364,7 @@ let mut diag_tick: u32 = 0;
         }
 
         // ── VM memory ──
-        if mode_changed {
+        if mode_changed || initializing || config_changed {
             vm.apply_mode(&active);
         }
 
@@ -381,7 +383,7 @@ let mut diag_tick: u32 = 0;
         }
 
         // ── Thermal spoof ──
-        if mode_changed {
+        if mode_changed || initializing || config_changed {
             thermal.apply_spoof(&active);
         }
 

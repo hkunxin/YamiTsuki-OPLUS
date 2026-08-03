@@ -124,9 +124,12 @@ impl GpuManager {
             GpuVendor::DevfreqMali => {
                 let Some(root) = &self.devfreq_root else { return; };
                 if let Some(target) = self.target_freq(mode) { let _ = fs::write(Path::new(root).join("max_freq"), target.to_string()); }
-                let governor = match mode { "powersave" => "powersave", "performance" => "performance", _ => "simple_ondemand" };
+                let config = crate::config::load(mode);
+                let fallback = match mode { "powersave" => "powersave", "performance" => "performance", _ => "simple_ondemand" };
+                let available = fs::read_to_string(Path::new(root).join("available_governors")).unwrap_or_default();
+                let governor = if config.gpu_governor != "auto" && available.split_whitespace().any(|item| item == config.gpu_governor.as_str()) { config.gpu_governor.as_str() } else { fallback };
                 let gov_path = Path::new(root).join("governor");
-                if fs::read_to_string(Path::new(root).join("available_governors")).map(|s| s.split_whitespace().any(|g| g == governor)).unwrap_or(false) { let _ = fs::write(gov_path, governor); }
+                if available.split_whitespace().any(|item| item == governor) { let _ = fs::write(gov_path, governor); }
             }
             GpuVendor::GedMali | GpuVendor::Unknown => {}
         }
