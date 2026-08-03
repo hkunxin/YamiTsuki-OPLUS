@@ -54,18 +54,34 @@ function drawPowerChart(rows) {
 async function loadAnalytics() {
     var dateRes = await execCommand('date +%Y%m%d');
     var date = dateRes.stdout.trim() || 'current';
+    var statusRes = await execCommand('cat /data/local/tmp/yamitsuki_power_status 2>/dev/null');
+    var session = 0;
+    statusRes.stdout.split(/\r?\n/).forEach(function(line) {
+        var pair = line.split('=');
+        if (pair.length > 1 && pair[0].trim() === 'session') session = Number(pair[1].trim()) || 0;
+    });
     var powerRes = await execCommand('cat ' + MODULE_DIR + '/data/power-' + date + '.csv 2>/dev/null');
-    var rows = powerRes.stdout.trim().split(/\r?\n/).slice(1).filter(Boolean).slice(-240).map(function(line) {
+    var rows = powerRes.stdout.trim().split(/\r?\n/).slice(1).filter(Boolean).slice(-60).map(function(line) {
         var values = parseAnalyticsCsv(line);
         return { battery: Number(values[1]) || 0, power: Number(values[4]) || 0 };
     });
     drawPowerChart(rows);
     var meta = document.getElementById('analytics-meta');
-    if (meta) meta.textContent = rows.length ? '今日采样 ' + rows.length + ' 条 · 每 30 秒落盘 · 数据文件按日轮转' : '暂无历史采样数据';
+    if (meta) meta.textContent = rows.length ? '本次放电会话 #' + (session || '-') + ' · 当日采样 ' + rows.length + ' 条 · 充电期间不参与统计，每次充电后重新统计' : '暂无历史采样数据';
+
     var appRes = await execCommand('cat ' + MODULE_DIR + '/data/apps-' + date + '.csv 2>/dev/null');
     var apps = {};
+    var latestSession = 0;
     appRes.stdout.trim().split(/\r?\n/).slice(1).filter(Boolean).forEach(function(line) {
         var values = parseAnalyticsCsv(line);
+        var s = Number(values[6]) || 0;
+        if (s > latestSession) latestSession = s;
+    });
+    var targetSession = session || latestSession;
+    appRes.stdout.trim().split(/\r?\n/).slice(1).filter(Boolean).forEach(function(line) {
+        var values = parseAnalyticsCsv(line);
+        var s = Number(values[6]) || 0;
+        if (s !== targetSession) return;
         var pkg = values[1] || '未知应用';
         if (!apps[pkg]) apps[pkg] = { label: values[2] || pkg, power: 0, energy: 0, samples: 0 };
         apps[pkg].power += Number(values[3]) || 0;
@@ -74,5 +90,5 @@ async function loadAnalytics() {
     });
     var sorted = Object.keys(apps).map(function(pkg) { return { pkg: pkg, data: apps[pkg] }; }).sort(function(a, b) { return b.data.energy - a.data.energy; });
     var table = document.getElementById('appPowerTable');
-    if (table) table.innerHTML = sorted.length ? '<div class="power-row power-head"><span>应用</span><span>估算功率</span><span>估算电量</span></div>' + sorted.slice(0, 20).map(function(item) { return '<div class="power-row"><span title="' + item.pkg + '">' + item.data.label + '<small>' + item.pkg + '</small></span><b>' + (item.data.power / item.data.samples).toFixed(2) + ' W</b><b>' + item.data.energy.toFixed(2) + ' mAh</b></div>'; }).join('') : '<div class="empty-state">暂无应用耗电记录</div>';
+    if (table) table.innerHTML = sorted.length ? '<div class="power-row power-head"><span>应用</span><span>估算功率</span><span>估算电量</span></div>' + sorted.slice(0, 20).map(function(item) { return '<div class="power-row"><span title="' + item.pkg + '">' + item.data.label + '<small>' + item.pkg + '</small></span><b>' + (item.data.power / item.data.samples).toFixed(2) + ' W</b><b>' + item.data.energy.toFixed(2) + ' mAh</b></div>'; }).join('') : '<div class="empty-state">当前放电会话暂无应用耗电记录</div>';
 }

@@ -15,6 +15,8 @@ pub struct AnalyticsCollector {
     last_app_refresh: u64,
     foreground_package: String,
     package_labels: HashMap<String, String>,
+    session: u64,
+    charging: bool,
 }
 
 impl AnalyticsCollector {
@@ -25,7 +27,21 @@ impl AnalyticsCollector {
             last_app_refresh: 0,
             foreground_package: String::new(),
             package_labels: HashMap::new(),
+            session: 1,
+            charging: false,
         }
+    }
+
+    /// 当从充电状态切换到放电状态时为 true，表示开启一个新的放电会话。
+    fn begin_new_session(&mut self, charging: bool) -> bool {
+        if !charging && self.charging {
+            self.session = self.session.saturating_add(1);
+            logger::log(&format!("耗电统计开启新放电会话: #{}", self.session));
+            self.charging = false;
+            return true;
+        }
+        self.charging = charging;
+        false
     }
 
     pub fn record(&mut self, capacity: &str, voltage: &str, current: &str, power_w: f64, charging: bool) {
@@ -34,20 +50,28 @@ impl AnalyticsCollector {
             return;
         }
         self.last_sample = now;
+        let new_session = self.begin_new_session(charging);
+        if new_session {
+            self.foreground_package = foreground_package();
+            self.last_app_refresh = now;
+        }
         if now.saturating_sub(self.last_app_refresh) >= APP_REFRESH_INTERVAL_SECS {
             self.foreground_package = foreground_package();
             self.last_app_refresh = now;
         }
+        // 充电期间读数表示充电输入功率，不代表系统功耗，统一归零，不计入功率统计。
+        let effective_power = if charging { 0.0 } else { power_w };
 
         let status = format!(
-            "timestamp={}\ncapacity={}\nvoltage_raw={}\ncurrent_raw={}\npower_w={:.3}\ncharging={}\nforeground={}\n",
+            "timestamp={}\ncapacity={}\nvoltage_raw={}\ncurrent_raw={}\npower_w={:.3}\ncharging={}\nforeground={}\nsession={}\n",
             now,
             sanitize(capacity),
             sanitize(voltage),
             sanitize(current),
-            power_w,
+            effective_power,
             charging,
             sanitize(&self.foreground_package),
+            self.session,
         );
         atomic_write(STATUS_FILE, &status);
 
@@ -59,24 +83,25 @@ impl AnalyticsCollector {
             csv_field(capacity),
             csv_field(voltage),
             csv_field(current),
-            power_w,
+            effective_power,
             charging,
             csv_field(&self.foreground_package),
         ));
 
-        if !charging && power_w > 0.0 && !self.foreground_package.is_empty() {
+        if !charging && effective_power > 0.0 && !self.foreground_package.is_empty() {
             let app_path = format!("{}/apps-{}.csv", DATA_DIR, date);
             let foreground = self.foreground_package.clone();
             let label = self.app_label(&foreground);
-            let estimated_mah = estimate_mah(power_w, voltage, SAMPLE_INTERVAL_SECS);
-            append_limited(&app_path, "timestamp,package,label,estimated_power_w,estimated_mah,window_seconds,source\n", &format!(
-                "{},{},{},{:.3},{:.4},{},foreground_attribution\n",
+            let estimated_mah = estimate_mah(effective_power, voltage, SAMPLE_INTERVAL_SECS);
+            append_limited(&app_path, "timestamp,package,label,estimated_power_w,estimated_mah,window_seconds,session,source\n", &format!(
+                "{},{},{},{:.3},{:.4},{},{},foreground_attribution\n",
                 now,
                 csv_field(&self.foreground_package),
                 csv_field(&label),
-                power_w,
+                effective_power,
                 estimated_mah,
                 SAMPLE_INTERVAL_SECS,
+                self.session,
             ));
         }
     }
