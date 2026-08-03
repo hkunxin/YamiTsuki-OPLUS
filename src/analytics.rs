@@ -66,7 +66,8 @@ impl AnalyticsCollector {
 
         if !charging && power_w > 0.0 && !self.foreground_package.is_empty() {
             let app_path = format!("{}/apps-{}.csv", DATA_DIR, date);
-            let label = self.app_label(&self.foreground_package);
+            let foreground = self.foreground_package.clone();
+            let label = self.app_label(&foreground);
             let estimated_mah = estimate_mah(power_w, voltage, SAMPLE_INTERVAL_SECS);
             append_limited(&app_path, "timestamp,package,label,estimated_power_w,estimated_mah,window_seconds,source\n", &format!(
                 "{},{},{},{:.3},{:.4},{},foreground_attribution\n",
