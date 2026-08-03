@@ -17,8 +17,9 @@ pub fn run_spoof() -> String {
             .chars()
             .take(11)
             .collect::<String>();
+        let cpuid_arg = format!("0x00000{}", uuid_str);
         let _ = Command::new("resetprop")
-            .args(&["ro.boot.cpuid", &format!("0x00000{}", uuid_str)])
+            .args(&["ro.boot.cpuid", cpuid_arg.as_str()])
             .output();
         let _ = Command::new("resetprop")
             .args(&["ro.boot.realmebootstate", "0"])
@@ -47,15 +48,16 @@ pub fn run_spoof() -> String {
                 uuid[2]
             );
             let _ = Command::new("ip")
-                .args(&["link", "set", "dev", "wlan0", "address", &new_mac])
+                .args(&["link", "set", "dev", "wlan0", "address", new_mac.as_str()])
                 .output();
             output.push_str(&format!("MAC spoofed -> {}\n", new_mac));
         }
     }
 
     // --- Serial number spoof ---
+    let serial_arg = random_hex_str(16);
     let _ = Command::new("resetprop")
-        .args(&["ro.serialno", &random_hex_str(16)])
+        .args(&["ro.serialno", serial_arg.as_str()])
         .output();
 
     // --- SSAID spoof ---

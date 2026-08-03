@@ -141,7 +141,8 @@ fn epoch_seconds() -> u64 {
 }
 
 fn day_key(timestamp: u64) -> String {
-    let output = Command::new("date").args(["-d", &format!("@{}", timestamp), "+%Y%m%d"]).output().ok()
+    let ts_arg = format!("@{}", timestamp);
+    let output = Command::new("date").args(["-d", ts_arg.as_str(), "+%Y%m%d"]).output().ok()
         .map(|value| String::from_utf8_lossy(&value.stdout).trim().to_string())
         .unwrap_or_default();
     if output.len() == 8 { output } else { "current".to_string() }
