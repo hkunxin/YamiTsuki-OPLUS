@@ -5,7 +5,6 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const DATA_DIR: &str = "/data/adb/modules/yamitsuki_oplus/data";
-const MODULE_BIN_DIR: &str = "/data/adb/modules/yamitsuki_oplus/bin";
 const STATUS_FILE: &str = "/data/local/tmp/yamitsuki_power_status";
 const SAMPLE_INTERVAL_SECS: u64 = 30;
 const APP_REFRESH_INTERVAL_SECS: u64 = 60;
@@ -124,21 +123,6 @@ fn sh_stdout(script: &str) -> Option<String> {
 }
 
 fn resolve_app_label(package: &str) -> String {
-    let resolver = format!(
-        "cands=\"{}/aapt {}/aapt2\"; for P in $cands; do [ -n \"$P\" ] && [ -x \"$P\" ] && break; P=; done; \
-         [ -f \"$P\" ] || {{ for bin in aapt aapt2; do P=$(command -v \"$bin\" 2>/dev/null); [ -n \"$P\" ] && break; done; }}; \
-         [ -n \"$P\" ] || exit 1; \
-         apk=$(pm path {} 2>/dev/null | head -1 | sed 's/^package://'); \
-         [ -n \"$apk\" ] || exit 1; \
-         \"$P\" dump badging \"$apk\" 2>/dev/null | grep -m1 '^application-label:' | cut -d\\' -f2",
-        MODULE_BIN_DIR,
-        MODULE_BIN_DIR,
-        shell_quote(package),
-    );
-    if let Some(label) = sh_stdout(&resolver).filter(|value| !value.is_empty() && value != package) {
-        return label;
-    }
-
     let component = format!(
         "cmd package resolve-activity --brief {} 2>/dev/null | tail -n 1",
         shell_quote(package),
