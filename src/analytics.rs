@@ -126,7 +126,7 @@ fn sh_stdout(script: &str) -> Option<String> {
 fn resolve_app_label(package: &str) -> String {
     let resolver = format!(
         "cands=\"{}/aapt {}/aapt2\"; for P in $cands; do [ -n \"$P\" ] && [ -x \"$P\" ] && break; P=; done; \
-         [ -f \"$P\" ] || { for bin in aapt aapt2; do P=$(command -v \"$bin\" 2>/dev/null); [ -n \"$P\" ] && break; done; }; \
+         [ -f \"$P\" ] || {{ for bin in aapt aapt2; do P=$(command -v \"$bin\" 2>/dev/null); [ -n \"$P\" ] && break; done; }}; \
          [ -n \"$P\" ] || exit 1; \
          apk=$(pm path {} 2>/dev/null | head -1 | sed 's/^package://'); \
          [ -n \"$apk\" ] || exit 1; \
