@@ -163,13 +163,6 @@ fn cmd_loop(
                 if enabled { "1" } else { "" },
             );
             features::step_charging(enabled);
-        } else if cmd.starts_with("mt_hide:") {
-            let enabled = cmd.ends_with("enable");
-            let _ = fs::write(
-                &format!("{}/mt_hide_enabled", MODULE_DIR),
-                if enabled { "1" } else { "" },
-            );
-            features::mt_hide(enabled);
         } else if cmd.starts_with("prop:") {
             let enabled = cmd.ends_with("enable");
             let _ = fs::write(
@@ -498,7 +491,6 @@ fn main() {
         "horae_enabled",
         "hw_overlay_enabled",
         "step_charging_enabled",
-        "mt_hide_enabled",
         "prop_enabled",
         "disable_usb_enabled",
     ];
@@ -510,7 +502,6 @@ fn main() {
                 "horae_enabled" => features::disable_horae(true),
                 "hw_overlay_enabled" => features::hw_overlay(true),
                 "step_charging_enabled" => features::step_charging(true),
-                "mt_hide_enabled" => features::mt_hide(true),
                 "prop_enabled" => features::prop_spoof(true),
                 "disable_usb_enabled" => features::disable_usb_debug(true),
                 _ => {}

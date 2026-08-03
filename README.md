@@ -53,7 +53,6 @@ cargo build --release --target aarch64-linux-android
 | 禁用 Horae | 条件支持 |
 | 禁用硬件叠加层 | 条件支持 |
 | 禁用阶梯充电 | 条件支持 |
-| 隐藏 MT 管理器 | 条件支持 |
 | 属性伪装 | 高风险，需手动验证 |
 | 禁用 USB 调试 | 条件支持 |
 | 设备特征随机修改 | 条件支持 |

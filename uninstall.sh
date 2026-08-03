@@ -52,7 +52,7 @@ settings put global development_settings_enabled 1 2>/dev/null
 STEP_PATH="/sys/class/power_supply/battery/step_charging_enabled"
 [ -f "$STEP_PATH" ] && echo "1" > "$STEP_PATH" 2>/dev/null
 
-# 8. 卸载 MT 管理器绑定
+# 8. 善后清理：解除历史遗留的 MT 管理器数据目录挂载，恢复数据可见性
 for pkg in bin.mt.plus bin.mt.plus.canary bin.mt.plus.pro bin.mt.plus.mod bin.mt.plus.mtz; do
     umount -l "/data/data/$pkg" 2>/dev/null
 done

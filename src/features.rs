@@ -1,14 +1,6 @@
 use std::fs;
 use std::process::Command;
 
-const MT_PKGS: &[&str] = &[
-    "bin.mt.plus",
-    "bin.mt.plus.canary",
-    "bin.mt.plus.pro",
-    "bin.mt.plus.mod",
-    "bin.mt.plus.mtz",
-];
-
 /// Unlock maximum charging current
 pub fn charge_boost(enabled: bool) {
     let path = "/sys/class/power_supply/battery/constant_charge_current";
@@ -45,40 +37,6 @@ pub fn step_charging(enabled: bool) {
     let path = "/sys/class/power_supply/battery/step_charging_enabled";
     let val = if enabled { "0" } else { "1" };
     let _ = fs::write(path, val);
-}
-
-/// Hide MT Manager via bind-mount
-pub fn mt_hide(enabled: bool) {
-    if enabled {
-        // Ensure empty dir exists for bind mount
-        let _ = fs::create_dir_all("/dev/fk_bypass_empty");
-        let _ = Command::new("chmod")
-            .args(&["0001", "/dev/fk_bypass_empty"])
-            .output();
-
-        let proc_mounts = fs::read_to_string("/proc/mounts").unwrap_or_default();
-
-        for pkg in MT_PKGS {
-            let path = format!("/data/data/{}", pkg);
-            if !proc_mounts.contains(&path) {
-                let _ = Command::new("mount")
-                    .args(&["--bind", "/dev/fk_bypass_empty", &path])
-                    .output();
-            }
-        }
-    } else {
-        for pkg in MT_PKGS {
-            let path = format!("/data/data/{}", pkg);
-            let _ = Command::new("umount")
-                .arg("-l")
-                .arg(&path)
-                .output();
-        }
-        let _ = Command::new("rm")
-            .arg("-rf")
-            .arg("/dev/fk_bypass_empty")
-            .output();
-    }
 }
 
 /// Reset system properties for spoofing

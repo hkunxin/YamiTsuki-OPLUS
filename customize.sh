@@ -10,7 +10,7 @@ if [ -d "$OLD_MODULE" ]; then
     ui_print "🔄 检测到旧版本，将沿用你的配置"
 fi
 
-FEATURES="charge_boost_enabled horae_enabled hw_overlay_enabled step_charging_enabled mt_hide_enabled prop_enabled disable_usb_enabled"
+FEATURES="charge_boost_enabled horae_enabled hw_overlay_enabled step_charging_enabled prop_enabled disable_usb_enabled"
 ENABLED_FEATURES=""
 
 if [ "$IS_UPDATE" -eq 1 ]; then

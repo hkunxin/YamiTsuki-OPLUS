@@ -67,7 +67,6 @@ var FEATURE_KEYS = {
     'horae': 'yamitsuki_horae',
     'hw_overlay': 'yamitsuki_hw_overlay',
     'step_charging': 'yamitsuki_step_charging',
-    'mt_hide': 'yamitsuki_mt_hide',
     'prop': 'yamitsuki_prop',
     'disable_usb': 'yamitsuki_disable_usb'
 };
@@ -77,7 +76,6 @@ var FEATURE_CMDS = {
     'horae': { enable: 'horae:enable', disable: 'horae:disable' },
     'hw_overlay': { enable: 'hw_overlay:enable', disable: 'hw_overlay:disable' },
     'step_charging': { enable: 'step_charging:enable', disable: 'step_charging:disable' },
-    'mt_hide': { enable: 'mt_hide:enable', disable: 'mt_hide:disable' },
     'prop': { enable: 'prop:enable', disable: 'prop:disable' },
     'disable_usb': { enable: 'disable_usb:enable', disable: 'disable_usb:disable' }
 };
