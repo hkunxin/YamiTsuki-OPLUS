@@ -110,14 +110,47 @@ impl AnalyticsCollector {
         if let Some(label) = self.package_labels.get(package) {
             return label.clone();
         }
-        let command = format!("cmd package resolve-activity --brief {} 2>/dev/null | tail -n 1", shell_quote(package));
-        let output = Command::new("sh").args(["-c", &command]).output().ok()
-            .map(|value| String::from_utf8_lossy(&value.stdout).trim().to_string())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| package.to_string());
-        self.package_labels.insert(package.to_string(), output.clone());
-        output
+        let label = resolve_app_label(package);
+        self.package_labels.insert(package.to_string(), label.clone());
+        label
     }
+}
+
+fn sh_stdout(script: &str) -> Option<String> {
+    Command::new("sh").args(["-c", script]).output().ok()
+        .map(|value| String::from_utf8_lossy(&value.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn resolve_app_label(package: &str) -> String {
+    let aapt = format!(
+        "command -v aapt >/dev/null 2>&1 || exit 1; apk=$(pm path {} 2>/dev/null | head -1 | sed 's/^package://'); \
+         [ -n \"$apk\" ] || exit 1; aapt dump badging \"$apk\" 2>/dev/null | grep -m1 \"^application-label:\" | cut -d\\' -f2",
+        shell_quote(package),
+    );
+    if let Some(label) = sh_stdout(&aapt).filter(|value| !value.is_empty() && value != package) {
+        return label;
+    }
+
+    let dumpsys = format!(
+        "dumpsys package {} 2>/dev/null | grep -m1 -E 'ApplicationLabel|nonLocalizedLabel|label=' | sed 's/^[^=]*=//' | xargs",
+        shell_quote(package),
+    );
+    if let Some(label) = sh_stdout(&dumpsys).filter(|value| !value.is_empty() && value != package) {
+        return label;
+    }
+
+    let component = format!(
+        "cmd package resolve-activity --brief {} 2>/dev/null | tail -n 1",
+        shell_quote(package),
+    );
+    if let Some(component) = sh_stdout(&component).filter(|value| !value.is_empty() && value != "null") {
+        if let Some(activity) = component.split('/').nth(1).filter(|value| !value.is_empty()) {
+            let short = activity.rsplit('.').find(|value| !value.is_empty()).unwrap_or(activity);
+            return short.to_string();
+        }
+    }
+    package.to_string()
 }
 
 fn epoch_seconds() -> u64 {
