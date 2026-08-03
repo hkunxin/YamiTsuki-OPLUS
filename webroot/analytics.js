@@ -69,17 +69,19 @@ async function loadAnalytics() {
     var meta = document.getElementById('analytics-meta');
     if (meta) meta.textContent = rows.length ? '本次放电会话 #' + (session || '-') + ' · 当日采样 ' + rows.length + ' 条 · 充电期间不参与统计，每次充电后重新统计' : '暂无历史采样数据';
 
-    var appRes = await execCommand('cat ' + MODULE_DIR + '/data/apps-' + date + '.csv 2>/dev/null');
+    var appRes = await execCommand('cat ' + MODULE_DIR + '/data/apps-' + date + '.csv 2>/dev/null; echo; cat ' + MODULE_DIR + '/data/apps-$(date -d yesterday +%Y%m%d 2>/dev/null).csv 2>/dev/null');
     var apps = {};
     var latestSession = 0;
-    appRes.stdout.trim().split(/\r?\n/).slice(1).filter(Boolean).forEach(function(line) {
+    var appRows = [];
+    appRes.stdout.trim().split(/\r?\n/).filter(Boolean).forEach(function(line) {
+        if (line.indexOf('timestamp,') === 0) return;
         var values = parseAnalyticsCsv(line);
+        appRows.push(values);
         var s = Number(values[6]) || 0;
         if (s > latestSession) latestSession = s;
     });
     var targetSession = session || latestSession;
-    appRes.stdout.trim().split(/\r?\n/).slice(1).filter(Boolean).forEach(function(line) {
-        var values = parseAnalyticsCsv(line);
+    appRows.forEach(function(values) {
         var s = Number(values[6]) || 0;
         if (s !== targetSession) return;
         var pkg = values[1] || '未知应用';

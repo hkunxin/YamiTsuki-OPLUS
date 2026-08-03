@@ -252,7 +252,7 @@ async function updateStatus() {
         var powerStatus = {};
         battRes.stdout.split(/\r?\n/).forEach(function(line) { var pair = line.split('='); if (pair.length > 1) powerStatus[pair[0]] = pair.slice(1).join('='); });
         document.getElementById("batteryLevel").textContent = powerStatus.capacity ? powerStatus.capacity.trim() + "%" : "--%";
-        document.getElementById("screenState").textContent = powerStatus.charging === "true" ? "充电中" : "放电中";
+        document.getElementById("batteryState").textContent = powerStatus.charging === "true" ? "充电中" : "放电中";
         document.getElementById("systemPower").textContent = powerStatus.power_w ? Number(powerStatus.power_w).toFixed(2) + " W" : "--";
 
         var screenRes = await execCommand("dumpsys display 2>/dev/null | grep -i mScreenState | head -1 | grep -oE 'ON|OFF'");
