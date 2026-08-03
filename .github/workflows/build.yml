@@ -76,6 +76,8 @@ jobs:
           cp webroot/index.html dist/webroot/
           cp webroot/style.css dist/webroot/
           cp webroot/script.js dist/webroot/
+          cp webroot/analytics.css dist/webroot/
+          cp webroot/analytics.js dist/webroot/
           cp customize.sh dist/
           cp service.sh dist/
           cp module.prop dist/

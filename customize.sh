@@ -47,6 +47,8 @@ fi
 [ -f "$MODPATH/webroot/index.html" ] && cp -f "$MODPATH/webroot/index.html" "$MODPATH/webroot/" || true
 [ -f "$MODPATH/webroot/style.css" ] && cp -f "$MODPATH/webroot/style.css" "$MODPATH/webroot/" || true
 [ -f "$MODPATH/webroot/script.js" ] && cp -f "$MODPATH/webroot/script.js" "$MODPATH/webroot/" || true
+[ -f "$MODPATH/webroot/analytics.css" ] && cp -f "$MODPATH/webroot/analytics.css" "$MODPATH/webroot/" || true
+[ -f "$MODPATH/webroot/analytics.js" ] && cp -f "$MODPATH/webroot/analytics.js" "$MODPATH/webroot/" || true
 
 set_perm_recursive $MODPATH 0 0 0755 0755 2>/dev/null || true
 set_perm $MODPATH/game_list.txt 0 0 0644 2>/dev/null || true
