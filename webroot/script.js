@@ -38,7 +38,6 @@ function execCommand(cmd, timeout) {
         }
     });
 }
-
 var toastTimer = null;
 
 function showToast(msg, type) {
@@ -138,6 +137,9 @@ async function saveLogConfig() {
 
 function escapeHtml(value) {
     return String(value).replace(/[&<>\"']/g, function(char) { return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[char]; });
+}
+function isValidPackage(pkg) {
+    return /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(pkg);
 }
 function profileInput(field, value) {
     var id = 'profile-' + field[0];
@@ -303,6 +305,7 @@ function switchTab(tab) {
 // 模式切换
 // ============================================================
 async function setMode(mode) {
+    if (!/^(auto|performance|powersave|balance)$/.test(mode)) return;
     document.querySelectorAll(".mode-btn").forEach(function(b) {
         b.classList.remove("active");
     });
@@ -345,8 +348,8 @@ async function loadGames() {
         }
         container.innerHTML = list.map(function(pkg) {
             return '<div class="game-item">' +
-                '<span class="pkg">' + pkg + '</span>' +
-                '<button class="del" onclick="removeGame(\'' + pkg + '\')">✕</button>' +
+                '<span class="pkg">' + escapeHtml(pkg) + '</span>' +
+                '<button class="del" onclick="removeGame(\'' + escapeHtml(pkg) + '\')">✕</button>' +
                 '</div>';
         }).join("");
     } catch (e) {
@@ -358,7 +361,7 @@ async function addGame() {
     var input = document.getElementById("gameInput");
     var pkg = input.value.trim();
     if (!pkg) { showToast("请输入包名", "warning"); return; }
-    if (!pkg.includes(".")) { showToast("包名格式错误", "warning"); return; }
+    if (!isValidPackage(pkg)) { showToast("包名格式错误，应为 com.example.app", "warning"); return; }
     var existing = await execCommand("grep -x \"" + pkg + "\" " + GAME_LIST + " 2>/dev/null");
     if (existing.stdout.trim()) { showToast("该游戏已存在", "warning"); return; }
     await execCommand("echo \"" + pkg + "\" >> " + GAME_LIST);
@@ -369,6 +372,7 @@ async function addGame() {
 }
 
 async function removeGame(pkg) {
+    if (!isValidPackage(pkg)) return;
     await execCommand("grep -v \"^" + pkg + "$\" " + GAME_LIST + " > " + GAME_LIST + ".tmp && mv " + GAME_LIST + ".tmp " + GAME_LIST);
     showToast("已移除: " + pkg, "info");
     loadGames();

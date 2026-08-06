@@ -24,16 +24,22 @@ if ! echo "$BRAND" | grep -qiE "OPPO|OnePlus|realme"; then
 fi
 
 [ ! -f "$GAME_LIST" ] && {
-    echo "com.tencent.tmgp.sgame" > $GAME_LIST
-    echo "com.miHoYo.GenshinImpact" >> $GAME_LIST
+    echo "com.tencent.tmgp.sgame" > "$GAME_LIST"
+    echo "com.miHoYo.GenshinImpact" >> "$GAME_LIST"
 }
-[ ! -f "$MODE_FILE" ] && echo "auto" > $MODE_FILE
-[ ! -f "$CMD_FILE" ] && echo "" > $CMD_FILE
+[ ! -f "$MODE_FILE" ] && echo "auto" > "$MODE_FILE"
+[ ! -f "$CMD_FILE" ] && echo "" > "$CMD_FILE"
+chmod 600 "$CMD_FILE"
+chmod 600 "$MODE_FILE"
 
 if [ -f "$DAEMON" ] && [ -x "$DAEMON" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S %z') [INFO] 启动 Rust 底层引擎" >> "$LOG_FILE"
-    pkill -f "yamitsuki_rs" 2>/dev/null
+    if [ -f "$MODDIR/yamitsuki.pid" ]; then
+    kill "$(cat "$MODDIR/yamitsuki.pid")" 2>/dev/null
+    rm -f "$MODDIR/yamitsuki.pid"
+fi
     nohup "$DAEMON" >/dev/null 2>&1 &
+    echo $! > "$MODDIR/yamitsuki.pid"
 fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S %z') [INFO] 引擎已启动，调度由内部 Scheduler 负责" >> "$LOG_FILE"

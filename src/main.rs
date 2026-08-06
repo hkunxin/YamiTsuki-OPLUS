@@ -1,4 +1,4 @@
-﻿mod cpu;
+mod cpu;
 mod gpu;
 mod mode;
 mod features;
@@ -131,9 +131,13 @@ fn cmd_loop(
             let gov = cpu.governor_for_mode(&active);
             cpu.set_all_governors(&gov);
         } else if cmd.starts_with("governor:set:") {
-            let gov = &cmd["governor:set:".len()..];
-            let _ = fs::write(GOVERNOR_SELECTED_FILE, gov);
-            cpu.set_all_governors(gov);
+            let gov = cmd["governor:set:".len()..].trim();
+            if cpu.available_governors().iter().any(|item| item == gov) {
+                let _ = fs::write(GOVERNOR_SELECTED_FILE, gov);
+                cpu.set_all_governors(gov);
+            } else {
+                logger::log(&format!("拒绝未知 governor: {}", gov));
+            }
         }
         // ── feature toggles ──
         else if cmd.starts_with("charge_boost:") {
@@ -267,7 +271,7 @@ let mut diag_tick: u32 = 0;
         // ── PLG110 智能调度：CPU/GPU 负载 + SoC/CPU 温度 ──
         let cpu_load = cpu.load_percent();
         let (gpu_avg, gpu_current) = {
-            let mut fas = fas_sched.lock().unwrap();
+            let mut fas = fas_sched.lock().unwrap_or_else(|e| e.into_inner());
             (fas.update(), fas.current_gpu_freq())
         };
         let gpu_util_known = gpu_avg.is_some();
@@ -339,10 +343,10 @@ let mut diag_tick: u32 = 0;
         }
 
         thread_opt_tick = thread_opt_tick.wrapping_add(1);
+        let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
+        let pkgs: Vec<&str> = game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).map(|pkg| pkg.find('#').map(|idx| &pkg[..idx]).unwrap_or(pkg)).filter(|pkg| !pkg.is_empty()).collect();
         if active == "performance" && (mode_changed || thread_opt_tick % 10 == 0) {
-            let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
-            for pkg in game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()) {
-                let pkg = if let Some(idx) = pkg.find('#') { &pkg[..idx] } else { pkg };
+            for pkg in &pkgs {
                 thread_opt.optimize_game_with_policy(pkg, !thread_degraded, !thread_degraded);
                 let moved = cgroup.assign_game(pkg);
                 if moved == 0 {
@@ -350,9 +354,7 @@ let mut diag_tick: u32 = 0;
                 }
             }
         } else {
-            let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
-            for pkg in game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()) {
-                let pkg = if let Some(idx) = pkg.find('#') { &pkg[..idx] } else { pkg };
+            for pkg in &pkgs {
                 thread_opt.restore_game(pkg);
             }
         }
@@ -370,7 +372,7 @@ let mut diag_tick: u32 = 0;
 
         // ── Doze ──
         {
-            let mut d = doze_mgr.lock().unwrap();
+            let mut d = doze_mgr.lock().unwrap_or_else(|e| e.into_inner());
             if screen_off && !was_dozing {
                 d.enter_doze();
                 was_dozing = true;
