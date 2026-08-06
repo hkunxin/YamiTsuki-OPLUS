@@ -78,9 +78,11 @@ impl IoManager {
     }
 
     pub fn scheduler_for_mode(mode: &str) -> IoScheduler {
-        match mode {
-            "powersave" => IoScheduler::MqDeadline,
-            "performance" => IoScheduler::MqDeadline,
+        let config = crate::config::load(mode);
+        match config.io_scheduler.as_str() {
+            "bfq" => IoScheduler::Bfq,
+            "deadline" => IoScheduler::Deadline,
+            "noop" | "none" => IoScheduler::Noop,
             _ => IoScheduler::MqDeadline,
         }
     }

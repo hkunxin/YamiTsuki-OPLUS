@@ -22,10 +22,6 @@ impl ScxManager {
             .filter(|s| !s.is_empty())
     }
 
-    /// Check if scx is currently active
-    pub fn is_active() -> bool {
-        Self::current_scx().is_some()
-    }
 
     /// Try to load a specific scx scheduler
     /// Common schedulers: scx_bpfland, scx_lavd, scx_rusty

@@ -6,7 +6,6 @@ const CPU_POSSIBLE: &str = "/sys/devices/system/cpu/possible";
 
 pub struct CpuManager {
     cores: Vec<u32>,
-    little_max: usize,
     stat_prev: Mutex<Option<(u64, u64)>>,
     pub big_cores: Vec<u32>,
     pub little_cores: Vec<u32>,
@@ -104,11 +103,8 @@ impl CpuManager {
             }
         }
 
-        let little_max = little.len();
-
         CpuManager {
             cores,
-            little_max,
             stat_prev: Mutex::new(None),
             big_cores: big,
             little_cores: little,
@@ -171,10 +167,6 @@ impl CpuManager {
             .unwrap_or(0)
     }
 
-    pub fn set_scaling_max(&self, core: u32, freq: u64) -> bool {
-        let path = format!("{}/cpu{}/cpufreq/scaling_max_freq", CPU_BASE, core);
-        fs::write(&path, freq.to_string()).is_ok()
-    }
 
     /// PLG110 保守动态上限：仅采用 CPU 压力，不让未校准的 GED GPU 值触发提频。
     /// 返回实际频率上限系数的千分比，供诊断日志使用。
@@ -206,14 +198,6 @@ impl CpuManager {
         (factor * 1000.0).round() as u32
     }
 
-    fn write_max_freq(&self, core: u32, freq: u64) -> bool {
-        self.set_scaling_max(core, freq)
-    }
-
-    fn write_min_freq(&self, core: u32, freq: u64) -> bool {
-        let path = format!("{}/cpu{}/cpufreq/scaling_min_freq", CPU_BASE, core);
-        fs::write(&path, freq.to_string()).is_ok()
-    }
 
     pub fn available_governors(&self) -> Vec<String> {
         let Some(&core) = self.cores.first() else { return Vec::new(); };

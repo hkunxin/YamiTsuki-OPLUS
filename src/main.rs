@@ -34,7 +34,6 @@ use fas::FasScheduler;
 use thermal::{ThermalManager, ThermalSnapshot};
 use analytics::AnalyticsCollector;
 const MODULE_DIR: &str = "/data/adb/modules/yamitsuki_oplus";
-const MODE_FILE: &str = "/data/local/tmp/yamitsuki_mode";
 const CMD_FILE: &str = "/data/local/tmp/yamitsuki_cmd";
 const GOVERNOR_INFO_FILE: &str = "/data/local/tmp/governor_info";
 const GOVERNOR_SELECTED_FILE: &str = "/data/adb/modules/yamitsuki_oplus/governor_selected";
@@ -210,7 +209,6 @@ fn daemon_loop(
         .ok();
     let mut pending_mode = String::new();
     let mut pending_mode_samples = 0u8;
-    let mut was_dozing = false;
     let mut last_scx_status = String::new();
     let mut power_sampler = PowerSampler::new();
     let mut analytics = AnalyticsCollector::new();
@@ -368,18 +366,20 @@ let mut diag_tick: u32 = 0;
         // ── VM memory ──
         if mode_changed || initializing || config_changed {
             vm.apply_mode(&active);
+            if active == "performance" && (mode_changed || initializing) {
+                vm.drop_caches();
+                logger::log("进入性能模式：已释放页缓存");
+            }
         }
 
         // ── Doze ──
         {
             let mut d = doze_mgr.lock().unwrap_or_else(|e| e.into_inner());
-            if screen_off && !was_dozing {
+            if screen_off && !d.is_dozing() {
                 d.enter_doze();
-                was_dozing = true;
                 logger::log("进入深度休眠");
-            } else if !screen_off && was_dozing {
+            } else if !screen_off && d.is_dozing() {
                 d.exit_doze();
-                was_dozing = false;
                 logger::log("退出深度休眠");
             }
         }
@@ -410,6 +410,8 @@ let mut diag_tick: u32 = 0;
         let protection_temp_text = ThermalSnapshot::temp_celsius(thermal_snapshot.soc_max);
         diag_tick = diag_tick.wrapping_add(1);
         if diag_tick % 20 == 0 && !screen_off {
+            let (cgroup_ok, cgroup_fail) = cgroup.diagnostic_counts();
+            logger::log_debug(&format!("cgroup ok={} fail={}", cgroup_ok, cgroup_fail));
             last_top_processes = Command::new("sh").args(["-c", "top -b -n 1 -m 5 2>/dev/null | tail -5 | tr '\\n' ';'"]).output()
                 .ok().map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string()).unwrap_or_default();
             last_foreground = Command::new("dumpsys").args(["activity", "activities"]).output()
@@ -420,7 +422,7 @@ let mut diag_tick: u32 = 0;
         let zone_summary = &thermal_snapshot.zone_summary;
         let last_core = cpu.last_core().unwrap_or(0);
         logger::log_debug(&format!(
-            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc_max={}C cpu_core_max={}C gpu_max={}C shell_front={}C shell_frame={}C shell_back={}C thermal_protect={}C bat={}% charging={} v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
+            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc_max={}C cpu_core_max={}C gpu_max={}C shell_front={}C shell_frame={}C shell_back={}C thermal_protect={}C bat={}% charging={} v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} vm_cache={} foreground={} zones={} top={}",
             active,
             cpu.read_freq(0) / 1000,
             last_core,
@@ -448,6 +450,7 @@ let mut diag_tick: u32 = 0;
             read_sysfs(BATTERY_POWER_AVG),
             io.current(),
             vm.current_swappiness(),
+            vm.current_cache_pressure(),
             last_foreground,
             zone_summary,
             last_top_processes,
