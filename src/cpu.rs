@@ -12,6 +12,7 @@ pub struct CpuManager {
     pub middle_cores: Vec<u32>,
     pub prime_cores: Vec<u32>,
     write_failures: AtomicUsize,
+    last_cap_factor: Mutex<f64>,
 }
 
 fn parse_cpu_range(raw: &str) -> Vec<u32> {
@@ -111,6 +112,7 @@ impl CpuManager {
             middle_cores: middle,
             prime_cores: prime,
             write_failures: AtomicUsize::new(0),
+            last_cap_factor: Mutex::new(-1.0),
         }
     }
 
@@ -186,6 +188,11 @@ impl CpuManager {
             else { 1.0 };
         let factor = (base + demand_boost).min(max_with_load) * thermal_limit * power_limit;
 
+        let mut last = self.last_cap_factor.lock().unwrap();
+        if (*last - factor).abs() < 1e-9 {
+            return (factor * 1000.0).round() as u32;
+        }
+
         let mut failures = 0;
         for (policy, related) in self.policy_groups() {
             if let Some(&core) = related.first() {
@@ -195,6 +202,7 @@ impl CpuManager {
             }
         }
         self.write_failures.fetch_add(failures, Ordering::Relaxed);
+        *last = factor;
         (factor * 1000.0).round() as u32
     }
 
@@ -327,5 +335,6 @@ impl CpuManager {
             }
         }
         self.write_failures.fetch_add(failures, Ordering::Relaxed);
+        *self.last_cap_factor.lock().unwrap() = -1.0;
     }
 }

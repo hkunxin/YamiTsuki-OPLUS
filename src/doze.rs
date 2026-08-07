@@ -14,7 +14,7 @@ impl DozeManager {
     }
 
     /// Enter deep doze: freeze background apps, enable aggressive idle
-    pub fn enter_doze(&mut self) {
+    pub fn enter_doze(&mut self, big_cores: &[u32]) {
         if self.enabled {
             return;
         }
@@ -26,7 +26,7 @@ impl DozeManager {
             .output();
 
         // 2. Lower max CPU freq for background
-        for cpu in &[4, 5, 6, 7] {
+        for &cpu in big_cores {
             // big cores
             let path = format!("/sys/devices/system/cpu/cpu{}/cpufreq/scaling_max_freq", cpu);
             let min = format!("/sys/devices/system/cpu/cpu{}/cpufreq/cpuinfo_min_freq", cpu);

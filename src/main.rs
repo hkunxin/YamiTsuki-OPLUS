@@ -317,7 +317,11 @@ let mut diag_tick: u32 = 0;
                 logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W max_freq={}MHz", requested_level, gpu_load, gpu_temp_c, power_watts, gpu.max_freq() / 1_000_000));
             }
         }
-        let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, smooth_temp, power_draw);
+        let cap_permille = if screen_off {
+            0
+        } else {
+            cpu.apply_dynamic_cap(&active, cpu_load, smooth_temp, power_draw)
+        };
 
         let valid_protection_temp = smooth_temp > 0;
         let high_thread_condition = valid_protection_temp && (smooth_temp >= active_config.thread_hot_temp || power_draw >= active_config.thread_hot_power);
@@ -376,10 +380,11 @@ let mut diag_tick: u32 = 0;
         {
             let mut d = doze_mgr.lock().unwrap_or_else(|e| e.into_inner());
             if screen_off && !d.is_dozing() {
-                d.enter_doze();
+                d.enter_doze(&cpu.big_cores);
                 logger::log("进入深度休眠");
             } else if !screen_off && d.is_dozing() {
                 d.exit_doze();
+                cpu.apply_mode(&active);
                 logger::log("退出深度休眠");
             }
         }
@@ -456,7 +461,12 @@ let mut diag_tick: u32 = 0;
             last_top_processes,
         ));
 
-        thread::sleep(Duration::from_millis(1500));
+        let tick = if screen_off {
+            Duration::from_secs(10)
+        } else {
+            Duration::from_millis(1500)
+        };
+        thread::sleep(tick);
     }
 }
 
