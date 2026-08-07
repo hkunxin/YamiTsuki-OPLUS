@@ -38,7 +38,6 @@ function execCommand(cmd, timeout) {
         }
     });
 }
-
 var toastTimer = null;
 
 function showToast(msg, type) {
@@ -64,8 +63,8 @@ var LOG_CONFIG = MODULE_DIR + "/log_config.conf";
 var PROFILE_CONFIG = MODULE_DIR + "/profiles.conf";
 var profileMode = 'powersave';
 var profileDefaults = {
-    powersave: { governor:'auto', gpu_governor:'auto', cpu_little:0.55, cpu_middle:0.60, cpu_prime:0.65, cpu_dynamic_base:0.55, cpu_dynamic_max:0.65, gpu_ratio:0.35, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:15, vm_dirty_ratio:10, vm_dirty_background_ratio:3, vm_dirty_writeback:1000, vm_dirty_expire:2000, vm_vfs_cache:80, vm_overcommit:0, io_scheduler:'mq-deadline', io_read_ahead:128, io_nr_requests:64, io_rq_affinity:2, io_nomerges:0, thermal_spoof:28000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 },
-    balance: { governor:'auto', gpu_governor:'auto', cpu_little:0.80, cpu_middle:0.75, cpu_prime:0.70, cpu_dynamic_base:0.65, cpu_dynamic_max:0.85, gpu_ratio:0.75, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:40, vm_dirty_ratio:10, vm_dirty_background_ratio:5, vm_dirty_writeback:500, vm_dirty_expire:3000, vm_vfs_cache:60, vm_overcommit:1, io_scheduler:'mq-deadline', io_read_ahead:256, io_nr_requests:128, io_rq_affinity:2, io_nomerges:0, thermal_spoof:35000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 },
+    powersave: { governor:'auto', gpu_governor:'auto', cpu_little:0.40, cpu_middle:0.45, cpu_prime:0.55, cpu_dynamic_base:0.40, cpu_dynamic_max:0.85, gpu_ratio:0.50, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:15, vm_dirty_ratio:10, vm_dirty_background_ratio:3, vm_dirty_writeback:1000, vm_dirty_expire:2000, vm_vfs_cache:80, vm_overcommit:0, io_scheduler:'mq-deadline', io_read_ahead:128, io_nr_requests:64, io_rq_affinity:2, io_nomerges:0, thermal_spoof:28000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 },
+    balance: { governor:'auto', gpu_governor:'auto', cpu_little:0.80, cpu_middle:0.75, cpu_prime:0.70, cpu_dynamic_base:0.65, cpu_dynamic_max:0.85, gpu_ratio:0.90, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:40, vm_dirty_ratio:10, vm_dirty_background_ratio:5, vm_dirty_writeback:500, vm_dirty_expire:3000, vm_vfs_cache:60, vm_overcommit:1, io_scheduler:'mq-deadline', io_read_ahead:256, io_nr_requests:128, io_rq_affinity:2, io_nomerges:0, thermal_spoof:35000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 },
     performance: { governor:'auto', gpu_governor:'auto', cpu_little:1, cpu_middle:1, cpu_prime:1, cpu_dynamic_base:0.85, cpu_dynamic_max:1, gpu_ratio:1, gpu_protect_1:780000000, gpu_protect_2:650000000, gpu_protect_3:520000000, vm_swappiness:10, vm_dirty_ratio:40, vm_dirty_background_ratio:10, vm_dirty_writeback:3000, vm_dirty_expire:6000, vm_vfs_cache:30, vm_overcommit:1, io_scheduler:'mq-deadline', io_read_ahead:1024, io_nr_requests:512, io_rq_affinity:2, io_nomerges:0, thermal_spoof:42000, gpu_high_load:85, gpu_high_temp:52, gpu_high_power:3.5, gpu_clear_load:45, gpu_clear_temp:48, gpu_clear_power:2.5, thread_hot_temp:52000, thread_hot_power:4.5, thread_cool_temp:48000, thread_cool_power:3.5 }
 };
 var profileGroups = [
@@ -138,6 +137,9 @@ async function saveLogConfig() {
 
 function escapeHtml(value) {
     return String(value).replace(/[&<>\"']/g, function(char) { return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[char]; });
+}
+function isValidPackage(pkg) {
+    return /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(pkg);
 }
 function profileInput(field, value) {
     var id = 'profile-' + field[0];
@@ -303,6 +305,7 @@ function switchTab(tab) {
 // 模式切换
 // ============================================================
 async function setMode(mode) {
+    if (!/^(auto|performance|powersave|balance)$/.test(mode)) return;
     document.querySelectorAll(".mode-btn").forEach(function(b) {
         b.classList.remove("active");
     });
@@ -345,8 +348,8 @@ async function loadGames() {
         }
         container.innerHTML = list.map(function(pkg) {
             return '<div class="game-item">' +
-                '<span class="pkg">' + pkg + '</span>' +
-                '<button class="del" onclick="removeGame(\'' + pkg + '\')">✕</button>' +
+                '<span class="pkg">' + escapeHtml(pkg) + '</span>' +
+                '<button class="del" onclick="removeGame(\'' + escapeHtml(pkg) + '\')">✕</button>' +
                 '</div>';
         }).join("");
     } catch (e) {
@@ -358,7 +361,7 @@ async function addGame() {
     var input = document.getElementById("gameInput");
     var pkg = input.value.trim();
     if (!pkg) { showToast("请输入包名", "warning"); return; }
-    if (!pkg.includes(".")) { showToast("包名格式错误", "warning"); return; }
+    if (!isValidPackage(pkg)) { showToast("包名格式错误，应为 com.example.app", "warning"); return; }
     var existing = await execCommand("grep -x \"" + pkg + "\" " + GAME_LIST + " 2>/dev/null");
     if (existing.stdout.trim()) { showToast("该游戏已存在", "warning"); return; }
     await execCommand("echo \"" + pkg + "\" >> " + GAME_LIST);
@@ -369,6 +372,7 @@ async function addGame() {
 }
 
 async function removeGame(pkg) {
+    if (!isValidPackage(pkg)) return;
     await execCommand("grep -v \"^" + pkg + "$\" " + GAME_LIST + " > " + GAME_LIST + ".tmp && mv " + GAME_LIST + ".tmp " + GAME_LIST);
     showToast("已移除: " + pkg, "info");
     loadGames();
@@ -477,16 +481,15 @@ function getFeatureState(feature) {
     return null;
 }
 
-function restoreAllStates() {
+async function restoreAllStates() {
     var features = Object.keys(FEATURE_KEYS);
+    var flagMap = { charge_boost:'charge_boost_enabled', horae:'horae_enabled', hw_overlay:'hw_overlay_enabled', step_charging:'step_charging_enabled', prop:'prop_enabled', disable_usb:'disable_usb_enabled' };
     for (var i = 0; i < features.length; i++) {
         var feature = features[i];
-        var state = getFeatureState(feature);
-        if (state !== null) {
-            applyFeatureUI(feature, state);
-        } else {
-            applyFeatureUI(feature, 'closed');
-        }
+        var result = await execCommand('test -f ' + MODULE_DIR + '/' + flagMap[feature] + ' && echo enabled || echo disabled');
+        var state = result.stdout.trim() === 'enabled' ? 'enabled' : 'closed';
+        saveFeatureState(feature, state);
+        applyFeatureUI(feature, state);
     }
 }
 

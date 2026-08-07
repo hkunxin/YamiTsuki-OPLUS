@@ -1,4 +1,4 @@
-﻿mod cpu;
+mod cpu;
 mod gpu;
 mod mode;
 mod features;
@@ -34,7 +34,6 @@ use fas::FasScheduler;
 use thermal::{ThermalManager, ThermalSnapshot};
 use analytics::AnalyticsCollector;
 const MODULE_DIR: &str = "/data/adb/modules/yamitsuki_oplus";
-const MODE_FILE: &str = "/data/local/tmp/yamitsuki_mode";
 const CMD_FILE: &str = "/data/local/tmp/yamitsuki_cmd";
 const GOVERNOR_INFO_FILE: &str = "/data/local/tmp/governor_info";
 const GOVERNOR_SELECTED_FILE: &str = "/data/adb/modules/yamitsuki_oplus/governor_selected";
@@ -131,9 +130,13 @@ fn cmd_loop(
             let gov = cpu.governor_for_mode(&active);
             cpu.set_all_governors(&gov);
         } else if cmd.starts_with("governor:set:") {
-            let gov = &cmd["governor:set:".len()..];
-            let _ = fs::write(GOVERNOR_SELECTED_FILE, gov);
-            cpu.set_all_governors(gov);
+            let gov = cmd["governor:set:".len()..].trim();
+            if cpu.available_governors().iter().any(|item| item == gov) {
+                let _ = fs::write(GOVERNOR_SELECTED_FILE, gov);
+                cpu.set_all_governors(gov);
+            } else {
+                logger::log(&format!("拒绝未知 governor: {}", gov));
+            }
         }
         // ── feature toggles ──
         else if cmd.starts_with("charge_boost:") {
@@ -206,7 +209,6 @@ fn daemon_loop(
         .ok();
     let mut pending_mode = String::new();
     let mut pending_mode_samples = 0u8;
-    let mut was_dozing = false;
     let mut last_scx_status = String::new();
     let mut power_sampler = PowerSampler::new();
     let mut analytics = AnalyticsCollector::new();
@@ -216,6 +218,8 @@ let mut diag_tick: u32 = 0;
     let mut gpu_protection_level: u8 = 0;
     let mut gpu_high_ticks: u8 = 0;
     let mut gpu_clear_ticks: u8 = 0;
+    let mut gpu_unknown_ticks: u8 = 0;
+    let mut previous_screen_off = false;
     let mut thread_opt_tick: u8 = 0;
     let mut thread_degraded = false;
     let mut thread_hot_ticks: u8 = 0;
@@ -223,6 +227,7 @@ let mut diag_tick: u32 = 0;
     let mut temp_history: [i64; 4] = [0; 4];
     let mut temp_hist_idx: usize = 0;
     let mut temp_hist_count: usize = 0;
+    let mut screen_off_ticks: u32 = 0;
 
     loop {
         let sampled_mode = mode_mgr.active_mode();
@@ -257,6 +262,10 @@ let mut diag_tick: u32 = 0;
             prev_mode = active.clone();
             pending_mode = active.clone();
             pending_mode_samples = 0;
+            gpu_protection_level = 0;
+            gpu_high_ticks = 0;
+            gpu_clear_ticks = 0;
+            gpu_unknown_ticks = 0;
             cpu.apply_mode(&active);
             if cpu.diagnostic_write_failures() > 0 {
                 logger::log(&format!("CPU策略写入失败累计={}", cpu.diagnostic_write_failures()));
@@ -267,7 +276,7 @@ let mut diag_tick: u32 = 0;
         // ── PLG110 智能调度：CPU/GPU 负载 + SoC/CPU 温度 ──
         let cpu_load = cpu.load_percent();
         let (gpu_avg, gpu_current) = {
-            let mut fas = fas_sched.lock().unwrap();
+            let mut fas = fas_sched.lock().unwrap_or_else(|e| e.into_inner());
             (fas.update(), fas.current_gpu_freq())
         };
         let gpu_util_known = gpu_avg.is_some();
@@ -289,10 +298,23 @@ let mut diag_tick: u32 = 0;
         } else { 0 };
         let gpu_temp_c = thermal_snapshot.gpu_max.map(|value| value as f64 / 1000.0).unwrap_or(0.0);
         let screen_off = mode_mgr.is_screen_off();
+        let screen_transition = screen_off != previous_screen_off;
+        if screen_transition && !screen_off {
+            // A screen-off protection cap must not survive into an interactive session when no thermal trigger is still present.
+            gpu_protection_level = 0;
+            gpu_high_ticks = 0;
+            gpu_clear_ticks = 0;
+        }
+        previous_screen_off = screen_off;
         let gpu_idle = !screen_off && cpu_load <= 25 && power_draw < 1.5;
         let active_config = config::load(&active);
         let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= active_config.gpu_high_load && (gpu_temp_c >= active_config.gpu_high_temp || power_draw >= active_config.gpu_high_power);
         let gpu_clear = gpu_idle || (gpu_util_known && gpu_load <= active_config.gpu_clear_load && gpu_temp_c > 0.0 && gpu_temp_c <= active_config.gpu_clear_temp && power_draw < active_config.gpu_clear_power);
+        if gpu_util_known {
+            gpu_unknown_ticks = 0;
+        } else {
+            gpu_unknown_ticks = gpu_unknown_ticks.saturating_add(1);
+        }
         if gpu_high {
             gpu_high_ticks = gpu_high_ticks.saturating_add(1);
             gpu_clear_ticks = 0;
@@ -303,19 +325,24 @@ let mut diag_tick: u32 = 0;
             gpu_high_ticks = 0;
             gpu_clear_ticks = 0;
         }
-        let battery_level = read_sysfs(BATTERY_CAPACITY).parse::<u32>().unwrap_or(100);
-        let requested_level = if screen_off || battery_level < 15 { 3 }
-            else if gpu_high_ticks >= 3 { 2 }
-            else if gpu_high_ticks >= 1 { 1 }
+
+        let requested_level = if screen_off { 3 }
+            else if gpu_high_ticks >= 6 { 2 }
+            else if gpu_high_ticks >= 3 { 1 }
             else if gpu_clear_ticks >= 8 { 0 }
+            else if gpu_unknown_ticks >= 4 { 0 }
             else { gpu_protection_level };
-        if requested_level != gpu_protection_level && (mode_changed || config_changed || requested_level > 0 || gpu_clear_ticks >= 8) {
+        if requested_level != gpu_protection_level && (mode_changed || config_changed || screen_transition || requested_level > 0 || gpu_clear_ticks >= 8 || gpu_unknown_ticks >= 4) {
             if gpu.apply_protection(&active, requested_level) {
                 gpu_protection_level = requested_level;
                 logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W max_freq={}MHz", requested_level, gpu_load, gpu_temp_c, power_watts, gpu.max_freq() / 1_000_000));
             }
         }
-        let cap_permille = cpu.apply_dynamic_cap(&active, cpu_load, smooth_temp, power_draw);
+        let cap_permille = if screen_off {
+            0
+        } else {
+            cpu.apply_dynamic_cap(&active, cpu_load, smooth_temp, power_draw)
+        };
 
         let valid_protection_temp = smooth_temp > 0;
         let high_thread_condition = valid_protection_temp && (smooth_temp >= active_config.thread_hot_temp || power_draw >= active_config.thread_hot_power);
@@ -339,10 +366,10 @@ let mut diag_tick: u32 = 0;
         }
 
         thread_opt_tick = thread_opt_tick.wrapping_add(1);
+        let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
+        let pkgs: Vec<&str> = game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).map(|pkg| pkg.find('#').map(|idx| &pkg[..idx]).unwrap_or(pkg)).filter(|pkg| !pkg.is_empty()).collect();
         if active == "performance" && (mode_changed || thread_opt_tick % 10 == 0) {
-            let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
-            for pkg in game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()) {
-                let pkg = if let Some(idx) = pkg.find('#') { &pkg[..idx] } else { pkg };
+            for pkg in &pkgs {
                 thread_opt.optimize_game_with_policy(pkg, !thread_degraded, !thread_degraded);
                 let moved = cgroup.assign_game(pkg);
                 if moved == 0 {
@@ -350,9 +377,7 @@ let mut diag_tick: u32 = 0;
                 }
             }
         } else {
-            let game_list = fs::read_to_string(GAME_LIST).unwrap_or_default();
-            for pkg in game_list.lines().map(|l| l.trim()).filter(|l| !l.is_empty()) {
-                let pkg = if let Some(idx) = pkg.find('#') { &pkg[..idx] } else { pkg };
+            for pkg in &pkgs {
                 thread_opt.restore_game(pkg);
             }
         }
@@ -366,18 +391,26 @@ let mut diag_tick: u32 = 0;
         // ── VM memory ──
         if mode_changed || initializing || config_changed {
             vm.apply_mode(&active);
+            if active == "performance" && (mode_changed || initializing) {
+                vm.drop_caches();
+                logger::log("进入性能模式：已释放页缓存");
+            }
         }
 
         // ── Doze ──
         {
-            let mut d = doze_mgr.lock().unwrap();
-            if screen_off && !was_dozing {
-                d.enter_doze();
-                was_dozing = true;
-                logger::log("进入深度休眠");
-            } else if !screen_off && was_dozing {
+            let mut d = doze_mgr.lock().unwrap_or_else(|e| e.into_inner());
+            if screen_off {
+                screen_off_ticks = screen_off_ticks.saturating_add(1);
+            } else {
+                screen_off_ticks = 0;
+            }
+            if screen_off && !d.is_dozing() && screen_off_ticks >= 12 {
+                d.enter_doze(&cpu.big_cores);
+                logger::log("enter deep doze");
+            } else if !screen_off && d.is_dozing() {
                 d.exit_doze();
-                was_dozing = false;
+                cpu.apply_mode(&active);
                 logger::log("退出深度休眠");
             }
         }
@@ -407,7 +440,10 @@ let mut diag_tick: u32 = 0;
         let shell_back_text = ThermalSnapshot::temp_celsius(shell_back);
         let protection_temp_text = ThermalSnapshot::temp_celsius(thermal_snapshot.soc_max);
         diag_tick = diag_tick.wrapping_add(1);
-        if diag_tick % 20 == 0 && !screen_off {
+        let diag_interval = if active == "powersave" { 40 } else { 20 };
+        if diag_tick % diag_interval == 0 && !screen_off {
+            let (cgroup_ok, cgroup_fail) = cgroup.diagnostic_counts();
+            logger::log_debug(&format!("cgroup ok={} fail={}", cgroup_ok, cgroup_fail));
             last_top_processes = Command::new("sh").args(["-c", "top -b -n 1 -m 5 2>/dev/null | tail -5 | tr '\\n' ';'"]).output()
                 .ok().map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string()).unwrap_or_default();
             last_foreground = Command::new("dumpsys").args(["activity", "activities"]).output()
@@ -418,7 +454,7 @@ let mut diag_tick: u32 = 0;
         let zone_summary = &thermal_snapshot.zone_summary;
         let last_core = cpu.last_core().unwrap_or(0);
         logger::log_debug(&format!(
-            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc_max={}C cpu_core_max={}C gpu_max={}C shell_front={}C shell_frame={}C shell_back={}C thermal_protect={}C bat={}% charging={} v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} foreground={} zones={} top={}",
+            "mode={} cpu0={}MHz cpu{}={}MHz cpu_load={}% cap={}‰ gpu={}MHz gpu_load={} gpu_control=devfreq_max_freq gpu_protect_level={} gpu_max={}MHz soc_max={}C cpu_core_max={}C gpu_max={}C shell_front={}C shell_frame={}C shell_back={}C thermal_protect={}C bat={}% charging={} v_raw={} i_raw={} p_inst={}W p_avg5={}W p_now_raw={} p_avg_raw={} io={} vm_sw={} vm_cache={} foreground={} zones={} top={}",
             active,
             cpu.read_freq(0) / 1000,
             last_core,
@@ -446,12 +482,18 @@ let mut diag_tick: u32 = 0;
             read_sysfs(BATTERY_POWER_AVG),
             io.current(),
             vm.current_swappiness(),
+            vm.current_cache_pressure(),
             last_foreground,
             zone_summary,
             last_top_processes,
         ));
 
-        thread::sleep(Duration::from_millis(1500));
+        let tick = if screen_off {
+            Duration::from_secs(10)
+        } else {
+            Duration::from_millis(1500)
+        };
+        thread::sleep(tick);
     }
 }
 

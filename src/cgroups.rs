@@ -3,9 +3,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::process::Command;
 
-const CGROUP_BG: &str = "/dev/cpuctl/background";
-const CGROUP_FG: &str = "/dev/cpuctl/foreground";
-const CGROUP_TOP: &str = "/dev/cpuctl/top-app";
 const CGROUP_GAME: &str = "/dev/cpuctl/game";
 
 pub struct CgroupManager {
@@ -29,13 +26,6 @@ impl CgroupManager {
         (self.successful.load(Ordering::Relaxed), self.failed.load(Ordering::Relaxed))
     }
 
-    pub fn assign_foreground(&self, pkg: &str) {
-        self.assign_to_group(CGROUP_FG, pkg);
-    }
-
-    pub fn assign_background(&self, pkg: &str) {
-        self.assign_to_group(CGROUP_BG, pkg);
-    }
 
     fn assign_to_group(&self, group: &str, pkg: &str) -> usize {
         let procs = format!("{}/cgroup.procs", group);

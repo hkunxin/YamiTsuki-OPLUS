@@ -8,9 +8,6 @@ impl ThreadOptimizer {
         ThreadOptimizer
     }
 
-    pub fn optimize_game(&self, pkg: &str) -> usize {
-        self.optimize_game_with_policy(pkg, true, true)
-    }
 
     pub fn optimize_game_with_policy(
         &self,

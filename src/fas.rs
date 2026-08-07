@@ -91,7 +91,5 @@ impl FasScheduler {
         Some(self.history.iter().sum::<u32>() / self.history.len() as u32)
     }
 
-    pub fn freq_scale(&self, avg_util: u32) -> f64 {
-        if avg_util > 80 { 1.0 } else if avg_util > 60 { 0.85 } else if avg_util > 40 { 0.7 } else { 0.5 }
-    }
+
 }

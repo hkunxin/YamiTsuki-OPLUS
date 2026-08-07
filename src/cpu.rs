@@ -6,13 +6,13 @@ const CPU_POSSIBLE: &str = "/sys/devices/system/cpu/possible";
 
 pub struct CpuManager {
     cores: Vec<u32>,
-    little_max: usize,
     stat_prev: Mutex<Option<(u64, u64)>>,
     pub big_cores: Vec<u32>,
     pub little_cores: Vec<u32>,
     pub middle_cores: Vec<u32>,
     pub prime_cores: Vec<u32>,
     write_failures: AtomicUsize,
+    last_cap_factor: Mutex<f64>,
 }
 
 fn parse_cpu_range(raw: &str) -> Vec<u32> {
@@ -104,17 +104,15 @@ impl CpuManager {
             }
         }
 
-        let little_max = little.len();
-
         CpuManager {
             cores,
-            little_max,
             stat_prev: Mutex::new(None),
             big_cores: big,
             little_cores: little,
             middle_cores: middle,
             prime_cores: prime,
             write_failures: AtomicUsize::new(0),
+            last_cap_factor: Mutex::new(-1.0),
         }
     }
 
@@ -171,17 +169,18 @@ impl CpuManager {
             .unwrap_or(0)
     }
 
-    pub fn set_scaling_max(&self, core: u32, freq: u64) -> bool {
-        let path = format!("{}/cpu{}/cpufreq/scaling_max_freq", CPU_BASE, core);
-        fs::write(&path, freq.to_string()).is_ok()
-    }
 
     /// PLG110 保守动态上限：仅采用 CPU 压力，不让未校准的 GED GPU 值触发提频。
     /// 返回实际频率上限系数的千分比，供诊断日志使用。
     pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, temp_mc: i64, power_watts: f64) -> u32 {
         let config = crate::config::load(mode);
         let (base, max_with_load) = (config.cpu_dynamic_base, config.cpu_dynamic_max);
-        let demand_boost: f64 = if cpu_load >= 85 && power_watts < 3.5 { 0.20 }
+        let demand_boost: f64 = if mode == "powersave" {
+            if cpu_load >= 85 && power_watts < 3.5 { 0.45 }
+            else if cpu_load >= 65 && power_watts < 3.0 { 0.30 }
+            else if cpu_load >= 45 && power_watts < 2.5 { 0.15 }
+            else { 0.0 }
+        } else if cpu_load >= 85 && power_watts < 3.5 { 0.20 }
             else if cpu_load >= 65 && power_watts < 3.0 { 0.10 }
             else if cpu_load >= 45 && power_watts < 2.5 { 0.05 }
             else { 0.0 };
@@ -192,28 +191,39 @@ impl CpuManager {
             else if temp_mc >= 52_000 { 0.65 }
             else if temp_mc >= 48_000 { 0.85 }
             else { 1.0 };
-        let factor = (base + demand_boost).min(max_with_load) * thermal_limit * power_limit;
+        // Keep the mode's per-cluster value as a floor during normal operation.
+        // A single global cap previously overwrote the prime-cluster setting,
+        // so low system-wide load could hold cores 4-7 at an unnecessarily low
+        // ceiling while a latency-sensitive task was waiting on them.
+        let dynamic_factor = (base + demand_boost).min(max_with_load);
+        let factor = dynamic_factor * thermal_limit * power_limit;
+
+        let mut last = self.last_cap_factor.lock().unwrap();
+        if (*last - factor).abs() < 1e-9 {
+            return (factor * 1000.0).round() as u32;
+        }
 
         let mut failures = 0;
         for (policy, related) in self.policy_groups() {
             if let Some(&core) = related.first() {
-                if !self.write_policy_max(&policy, core, factor) {
+                let cluster_floor = if related.iter().any(|item| self.little_cores.contains(item)) {
+                    config.cpu_little
+                } else if related.iter().any(|item| self.middle_cores.contains(item)) {
+                    config.cpu_middle
+                } else {
+                    config.cpu_prime
+                };
+                let policy_factor = dynamic_factor.max(cluster_floor) * thermal_limit * power_limit;
+                if !self.write_policy_max(&policy, core, policy_factor) {
                     failures += 1;
                 }
             }
         }
         self.write_failures.fetch_add(failures, Ordering::Relaxed);
+        *last = factor;
         (factor * 1000.0).round() as u32
     }
 
-    fn write_max_freq(&self, core: u32, freq: u64) -> bool {
-        self.set_scaling_max(core, freq)
-    }
-
-    fn write_min_freq(&self, core: u32, freq: u64) -> bool {
-        let path = format!("{}/cpu{}/cpufreq/scaling_min_freq", CPU_BASE, core);
-        fs::write(&path, freq.to_string()).is_ok()
-    }
 
     pub fn available_governors(&self) -> Vec<String> {
         let Some(&core) = self.cores.first() else { return Vec::new(); };
@@ -343,5 +353,6 @@ impl CpuManager {
             }
         }
         self.write_failures.fetch_add(failures, Ordering::Relaxed);
+        *self.last_cap_factor.lock().unwrap() = -1.0;
     }
 }

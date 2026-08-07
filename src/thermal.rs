@@ -17,19 +17,13 @@ pub struct ThermalSnapshot {
 }
 
 impl ThermalSnapshot {
-    pub fn protection_temp(&self) -> i64 {
-        self.soc_max.unwrap_or(0)
-    }
-
     pub fn temp_celsius(temp: Option<i64>) -> String {
         temp.map(|value| format!("{:.1}", value as f64 / 1000.0))
             .unwrap_or_else(|| "N/A".to_string())
     }
 }
 
-pub struct ThermalManager {
-    original: i64,
-}
+pub struct ThermalManager;
 
 fn read_zone_temp(zone: &str) -> Option<i64> {
     let value = fs::read_to_string(format!("{}/{}/temp", THERMAL_BASE, zone))
@@ -40,7 +34,7 @@ fn read_zone_temp(zone: &str) -> Option<i64> {
 
 impl ThermalManager {
     pub fn new() -> Self {
-        ThermalManager { original: Self::soc_temp().unwrap_or(35_000) }
+        ThermalManager
     }
 
     fn zone_names() -> Vec<String> {
@@ -55,17 +49,7 @@ impl ThermalManager {
         fs::read_to_string(format!("{}/{}/type", THERMAL_BASE, zone)).unwrap_or_default().trim().to_string()
     }
 
-    fn soc_temp() -> Option<i64> {
-        Self::zone_names().into_iter().find_map(|zone| {
-            (Self::zone_type(&zone) == SOC_MAX_TYPE).then(|| read_zone_temp(&zone)).flatten()
-        })
-    }
 
-    pub fn real_temp(&self) -> i64 { Self::soc_temp().unwrap_or(self.original) }
-
-    pub fn spoof_temp(&self, mode: &str) -> i64 {
-        crate::config::load(mode).thermal_spoof
-    }
 
     /// PLG110 专用：只写 /proc/shell-temp，保留所有真实 thermal zone 和硬件保护。
     /// extreme_gt 使用 index + 温度格式；这里仅更新 shell_front/frame/back 的显示索引。
@@ -84,9 +68,6 @@ impl ThermalManager {
         (0..3).all(|index| fs::write(SHELL_TEMP, format!("{} {}", index, target)).is_ok())
     }
 
-    pub fn restore(&self) {}
-
-    pub fn cpu_temp(&self) -> f64 { self.real_temp() as f64 / 1000.0 }
 
     pub fn snapshot(&self) -> ThermalSnapshot {
         let mut soc_max: Option<i64> = None;
@@ -140,33 +121,5 @@ impl ThermalManager {
         }
     }
 
-    pub fn max_protection_temp(&self) -> i64 {
-        self.snapshot().protection_temp()
-    }
-
-    pub fn zone_summary(&self) -> String {
-        self.snapshot().zone_summary
-    }
-
-    pub fn gpu_temp(&self) -> Option<f64> {
-        self.snapshot().gpu_max.map(|value| value as f64 / 1000.0)
-    }
-
-    pub fn cpu_core_temp(&self) -> Option<f64> {
-        self.snapshot().cpu_core_max.map(|value| value as f64 / 1000.0)
-    }
-
-    pub fn soc_temp_c(&self) -> Option<f64> {
-        self.snapshot().soc_max.map(|value| value as f64 / 1000.0)
-    }
-
-    pub fn shell_temps_c(&self) -> (Option<f64>, Option<f64>, Option<f64>) {
-        let snapshot = self.snapshot();
-        (
-            snapshot.shell_front.map(|value| value as f64 / 1000.0),
-            snapshot.shell_frame.map(|value| value as f64 / 1000.0),
-            snapshot.shell_back.map(|value| value as f64 / 1000.0),
-        )
-    }
 
 }
