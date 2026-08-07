@@ -191,7 +191,12 @@ impl CpuManager {
             else if temp_mc >= 52_000 { 0.65 }
             else if temp_mc >= 48_000 { 0.85 }
             else { 1.0 };
-        let factor = (base + demand_boost).min(max_with_load) * thermal_limit * power_limit;
+        // Keep the mode's per-cluster value as a floor during normal operation.
+        // A single global cap previously overwrote the prime-cluster setting,
+        // so low system-wide load could hold cores 4-7 at an unnecessarily low
+        // ceiling while a latency-sensitive task was waiting on them.
+        let dynamic_factor = (base + demand_boost).min(max_with_load);
+        let factor = dynamic_factor * thermal_limit * power_limit;
 
         let mut last = self.last_cap_factor.lock().unwrap();
         if (*last - factor).abs() < 1e-9 {
@@ -201,7 +206,15 @@ impl CpuManager {
         let mut failures = 0;
         for (policy, related) in self.policy_groups() {
             if let Some(&core) = related.first() {
-                if !self.write_policy_max(&policy, core, factor) {
+                let cluster_floor = if related.iter().any(|item| self.little_cores.contains(item)) {
+                    config.cpu_little
+                } else if related.iter().any(|item| self.middle_cores.contains(item)) {
+                    config.cpu_middle
+                } else {
+                    config.cpu_prime
+                };
+                let policy_factor = dynamic_factor.max(cluster_floor) * thermal_limit * power_limit;
+                if !self.write_policy_max(&policy, core, policy_factor) {
                     failures += 1;
                 }
             }

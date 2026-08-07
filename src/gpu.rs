@@ -125,7 +125,8 @@ impl GpuManager {
                 let Some(root) = &self.devfreq_root else { return; };
                 if let Some(target) = self.target_freq(mode) { let _ = fs::write(Path::new(root).join("max_freq"), target.to_string()); }
                 let config = crate::config::load(mode);
-                let fallback = match mode { "powersave" => "powersave", "performance" => "performance", _ => "simple_ondemand" };
+                // Let the governor scale within the mode cap. The powersave governor can remain at the lowest OPP on some vendor trees, making the GPU appear permanently stuck at low frequency.
+                let fallback = match mode { "performance" => "performance", _ => "simple_ondemand" };
                 let available = fs::read_to_string(Path::new(root).join("available_governors")).unwrap_or_default();
                 let governor = if config.gpu_governor != "auto" && available.split_whitespace().any(|item| item == config.gpu_governor.as_str()) { config.gpu_governor.as_str() } else { fallback };
                 let gov_path = Path::new(root).join("governor");

@@ -60,7 +60,7 @@ impl ModeManager {
         } else if charging {
             ("balance".to_string(), format!("自动: 正在充电 ({}%)", battery))
         } else {
-            ("powersave".to_string(), format!("自动: 普通使用以省电 ({}%)", battery))
+            ("balance".to_string(), format!("自动: 普通使用以均衡 ({}%)", battery))
         }
     }
 

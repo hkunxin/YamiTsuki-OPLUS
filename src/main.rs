@@ -218,6 +218,8 @@ let mut diag_tick: u32 = 0;
     let mut gpu_protection_level: u8 = 0;
     let mut gpu_high_ticks: u8 = 0;
     let mut gpu_clear_ticks: u8 = 0;
+    let mut gpu_unknown_ticks: u8 = 0;
+    let mut previous_screen_off = false;
     let mut thread_opt_tick: u8 = 0;
     let mut thread_degraded = false;
     let mut thread_hot_ticks: u8 = 0;
@@ -260,6 +262,10 @@ let mut diag_tick: u32 = 0;
             prev_mode = active.clone();
             pending_mode = active.clone();
             pending_mode_samples = 0;
+            gpu_protection_level = 0;
+            gpu_high_ticks = 0;
+            gpu_clear_ticks = 0;
+            gpu_unknown_ticks = 0;
             cpu.apply_mode(&active);
             if cpu.diagnostic_write_failures() > 0 {
                 logger::log(&format!("CPU策略写入失败累计={}", cpu.diagnostic_write_failures()));
@@ -292,10 +298,23 @@ let mut diag_tick: u32 = 0;
         } else { 0 };
         let gpu_temp_c = thermal_snapshot.gpu_max.map(|value| value as f64 / 1000.0).unwrap_or(0.0);
         let screen_off = mode_mgr.is_screen_off();
+        let screen_transition = screen_off != previous_screen_off;
+        if screen_transition && !screen_off {
+            // A screen-off protection cap must not survive into an interactive session when no thermal trigger is still present.
+            gpu_protection_level = 0;
+            gpu_high_ticks = 0;
+            gpu_clear_ticks = 0;
+        }
+        previous_screen_off = screen_off;
         let gpu_idle = !screen_off && cpu_load <= 25 && power_draw < 1.5;
         let active_config = config::load(&active);
         let gpu_high = gpu_util_known && !gpu_idle && gpu_load >= active_config.gpu_high_load && (gpu_temp_c >= active_config.gpu_high_temp || power_draw >= active_config.gpu_high_power);
         let gpu_clear = gpu_idle || (gpu_util_known && gpu_load <= active_config.gpu_clear_load && gpu_temp_c > 0.0 && gpu_temp_c <= active_config.gpu_clear_temp && power_draw < active_config.gpu_clear_power);
+        if gpu_util_known {
+            gpu_unknown_ticks = 0;
+        } else {
+            gpu_unknown_ticks = gpu_unknown_ticks.saturating_add(1);
+        }
         if gpu_high {
             gpu_high_ticks = gpu_high_ticks.saturating_add(1);
             gpu_clear_ticks = 0;
@@ -306,13 +325,14 @@ let mut diag_tick: u32 = 0;
             gpu_high_ticks = 0;
             gpu_clear_ticks = 0;
         }
-        let battery_level = read_sysfs(BATTERY_CAPACITY).parse::<u32>().unwrap_or(100);
-        let requested_level = if screen_off || battery_level < 30 { 3 }
-            else if gpu_high_ticks >= 3 { 2 }
-            else if gpu_high_ticks >= 1 { 1 }
+
+        let requested_level = if screen_off { 3 }
+            else if gpu_high_ticks >= 6 { 2 }
+            else if gpu_high_ticks >= 3 { 1 }
             else if gpu_clear_ticks >= 8 { 0 }
+            else if gpu_unknown_ticks >= 4 { 0 }
             else { gpu_protection_level };
-        if requested_level != gpu_protection_level && (mode_changed || config_changed || requested_level > 0 || gpu_clear_ticks >= 8) {
+        if requested_level != gpu_protection_level && (mode_changed || config_changed || screen_transition || requested_level > 0 || gpu_clear_ticks >= 8 || gpu_unknown_ticks >= 4) {
             if gpu.apply_protection(&active, requested_level) {
                 gpu_protection_level = requested_level;
                 logger::log(&format!("GPU保护级别切换: level={} load={} temp={:.1}C power={:.2}W max_freq={}MHz", requested_level, gpu_load, gpu_temp_c, power_watts, gpu.max_freq() / 1_000_000));

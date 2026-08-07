@@ -42,7 +42,7 @@ pub struct ModeConfig {
 
 fn defaults(mode: &str) -> ModeConfig {
     let (cpu_little, cpu_middle, cpu_prime, base, max, gpu_ratio, swappiness, dirty_ratio, dirty_bg, writeback, expire, cache, overcommit, read_ahead, requests, thermal) = match mode {
-        "powersave" => (0.40, 0.45, 0.55, 0.40, 0.85, 0.25, 15, 10, 3, 1000, 2000, 80, 0, 128, 64, 28_000),
+        "powersave" => (0.40, 0.45, 0.55, 0.40, 0.85, 0.50, 15, 10, 3, 1000, 2000, 80, 0, 128, 64, 28_000),
         "performance" => (1.0, 1.0, 1.0, 0.85, 1.0, 1.0, 10, 40, 10, 3000, 6000, 30, 1, 1024, 512, 42_000),
         _ => (0.8, 0.75, 0.7, 0.65, 0.85, 0.75, 40, 10, 5, 500, 3000, 60, 1, 256, 128, 35_000),
     };
