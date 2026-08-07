@@ -481,16 +481,15 @@ function getFeatureState(feature) {
     return null;
 }
 
-function restoreAllStates() {
+async function restoreAllStates() {
     var features = Object.keys(FEATURE_KEYS);
+    var flagMap = { charge_boost:'charge_boost_enabled', horae:'horae_enabled', hw_overlay:'hw_overlay_enabled', step_charging:'step_charging_enabled', prop:'prop_enabled', disable_usb:'disable_usb_enabled' };
     for (var i = 0; i < features.length; i++) {
         var feature = features[i];
-        var state = getFeatureState(feature);
-        if (state !== null) {
-            applyFeatureUI(feature, state);
-        } else {
-            applyFeatureUI(feature, 'closed');
-        }
+        var result = await execCommand('test -f ' + MODULE_DIR + '/' + flagMap[feature] + ' && echo enabled || echo disabled');
+        var state = result.stdout.trim() === 'enabled' ? 'enabled' : 'closed';
+        saveFeatureState(feature, state);
+        applyFeatureUI(feature, state);
     }
 }
 

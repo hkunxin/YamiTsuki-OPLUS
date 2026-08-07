@@ -175,7 +175,12 @@ impl CpuManager {
     pub fn apply_dynamic_cap(&self, mode: &str, cpu_load: u32, temp_mc: i64, power_watts: f64) -> u32 {
         let config = crate::config::load(mode);
         let (base, max_with_load) = (config.cpu_dynamic_base, config.cpu_dynamic_max);
-        let demand_boost: f64 = if cpu_load >= 85 && power_watts < 3.5 { 0.20 }
+        let demand_boost: f64 = if mode == "powersave" {
+            if cpu_load >= 85 && power_watts < 3.5 { 0.45 }
+            else if cpu_load >= 65 && power_watts < 3.0 { 0.30 }
+            else if cpu_load >= 45 && power_watts < 2.5 { 0.15 }
+            else { 0.0 }
+        } else if cpu_load >= 85 && power_watts < 3.5 { 0.20 }
             else if cpu_load >= 65 && power_watts < 3.0 { 0.10 }
             else if cpu_load >= 45 && power_watts < 2.5 { 0.05 }
             else { 0.0 };

@@ -225,6 +225,7 @@ let mut diag_tick: u32 = 0;
     let mut temp_history: [i64; 4] = [0; 4];
     let mut temp_hist_idx: usize = 0;
     let mut temp_hist_count: usize = 0;
+    let mut screen_off_ticks: u32 = 0;
 
     loop {
         let sampled_mode = mode_mgr.active_mode();
@@ -306,7 +307,7 @@ let mut diag_tick: u32 = 0;
             gpu_clear_ticks = 0;
         }
         let battery_level = read_sysfs(BATTERY_CAPACITY).parse::<u32>().unwrap_or(100);
-        let requested_level = if screen_off || battery_level < 15 { 3 }
+        let requested_level = if screen_off || battery_level < 30 { 3 }
             else if gpu_high_ticks >= 3 { 2 }
             else if gpu_high_ticks >= 1 { 1 }
             else if gpu_clear_ticks >= 8 { 0 }
@@ -379,9 +380,14 @@ let mut diag_tick: u32 = 0;
         // ── Doze ──
         {
             let mut d = doze_mgr.lock().unwrap_or_else(|e| e.into_inner());
-            if screen_off && !d.is_dozing() {
+            if screen_off {
+                screen_off_ticks = screen_off_ticks.saturating_add(1);
+            } else {
+                screen_off_ticks = 0;
+            }
+            if screen_off && !d.is_dozing() && screen_off_ticks >= 12 {
                 d.enter_doze(&cpu.big_cores);
-                logger::log("进入深度休眠");
+                logger::log("enter deep doze");
             } else if !screen_off && d.is_dozing() {
                 d.exit_doze();
                 cpu.apply_mode(&active);
@@ -414,7 +420,8 @@ let mut diag_tick: u32 = 0;
         let shell_back_text = ThermalSnapshot::temp_celsius(shell_back);
         let protection_temp_text = ThermalSnapshot::temp_celsius(thermal_snapshot.soc_max);
         diag_tick = diag_tick.wrapping_add(1);
-        if diag_tick % 20 == 0 && !screen_off {
+        let diag_interval = if active == "powersave" { 40 } else { 20 };
+        if diag_tick % diag_interval == 0 && !screen_off {
             let (cgroup_ok, cgroup_fail) = cgroup.diagnostic_counts();
             logger::log_debug(&format!("cgroup ok={} fail={}", cgroup_ok, cgroup_fail));
             last_top_processes = Command::new("sh").args(["-c", "top -b -n 1 -m 5 2>/dev/null | tail -5 | tr '\\n' ';'"]).output()

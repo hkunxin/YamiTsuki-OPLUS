@@ -49,8 +49,8 @@ impl ModeManager {
         let charging = self.is_charging();
         if screen_off {
             ("powersave".to_string(), "自动: 屏幕关闭".to_string())
-        } else if battery < 15 && !charging {
-            ("powersave".to_string(), format!("自动: 电量低于 15% 且未充电 ({}%)", battery))
+        } else if battery < 30 && !charging {
+            ("powersave".to_string(), format!("自动: 电量低于 30% 且未充电 ({}%)", battery))
         } else if self.is_game_running() && (battery > 25 || charging) {
             ("performance".to_string(), if charging {
                 format!("自动: 游戏运行且正在充电 ({}%)", battery)
@@ -60,7 +60,7 @@ impl ModeManager {
         } else if charging {
             ("balance".to_string(), format!("自动: 正在充电 ({}%)", battery))
         } else {
-            ("balance".to_string(), format!("自动: 常规状态 ({}%)", battery))
+            ("powersave".to_string(), format!("自动: 普通使用以省电 ({}%)", battery))
         }
     }
 
